@@ -1,0 +1,18 @@
+{% extends "messages/email/applicant_base.html" %}
+{% load nh3_tags i18n %}
+
+{% block content %}{# fmt:off #}
+{% trans "Your application has been reviewed and the outcome is" %}: {{ determination.clean_outcome }}
+
+{{ determination.message|nh3|striptags }}
+
+{% trans "Read the full determination here" %}: {{ request.scheme }}://{{ request.get_host }}{{ determination.get_absolute_url }}
+{% endblock %}{# fmt:on #}
+
+{% block more_info %}
+    {% if request.user != source.user %}
+        {% trans "Link to your application" %}: {{ request.scheme }}://{{ request.get_host }}{{ source.get_absolute_url }}
+        {% trans "If you have any questions, please submit them here" %}: {{ request.scheme }}://{{ request.get_host }}{{ source.get_absolute_url }}#communications
+        {% blocktrans %}If you have any issues accessing the submission system or other general inquiries, please email us at {{ ORG_EMAIL }}{% endblocktrans %}
+    {% endif %}
+{% endblock %}
