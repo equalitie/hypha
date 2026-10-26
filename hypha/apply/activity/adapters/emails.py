@@ -13,7 +13,7 @@ from hypha.apply.funds.models.co_applicants import (
     CoApplicantProjectPermission,
     CoApplicantRole,
 )
-from hypha.apply.projects.models.payment import (
+from hypha.apply.projects.models.invoice import (
     APPROVED_BY_FINANCE,
     CHANGES_REQUESTED_BY_FINANCE,
     CHANGES_REQUESTED_BY_STAFF,
@@ -29,6 +29,7 @@ from hypha.apply.users.roles import (
     FINANCE_GROUP_NAME,
     STAFF_GROUP_NAME,
 )
+from hypha.apply.users.utils import get_user_by_email
 from hypha.core.mail import (
     language,
     remove_extra_empty_lines,
@@ -146,13 +147,28 @@ class EmailAdapter(AdapterBase):
                         source=source
                     )
                 )
+            elif message_type == MESSAGES.COMMENT:
+                subject = _(
+                    "New comment on application to {ORG_LONG_NAME}: {source.title}"
+                ).format(ORG_LONG_NAME=settings.ORG_LONG_NAME, source=source)
+            elif message_type in {
+                MESSAGES.DETERMINATION_OUTCOME,
+                MESSAGES.BATCH_DETERMINATION_OUTCOME,
+            }:
+                subject = _(
+                    "Your application to {ORG_LONG_NAME} has been reviewed: {source.title_text_display}"
+                ).format(ORG_LONG_NAME=settings.ORG_LONG_NAME, source=source)
+            elif message_type == MESSAGES.DRAFT_SUBMISSION:
+                subject = _(
+                    "Draft saved – application to {ORG_LONG_NAME}: {source.title}"
+                ).format(ORG_LONG_NAME=settings.ORG_LONG_NAME, source=source)
             else:
                 try:
                     subject = source.page.specific.subject or _(
                         "Your application to {ORG_LONG_NAME}: {source.title_text_display}"
                     ).format(ORG_LONG_NAME=settings.ORG_LONG_NAME, source=source)
                 except AttributeError:
-                    subject = _("Your {ORG_LONG_NAME} Project: {source.title}").format(
+                    subject = _("Your {ORG_LONG_NAME} project: {source.title}").format(
                         ORG_LONG_NAME=settings.ORG_LONG_NAME, source=source
                     )
             return subject
@@ -163,6 +179,9 @@ class EmailAdapter(AdapterBase):
         }
 
     def handle_transition(self, old_phase, source, **kwargs):
+        if not settings.SEND_TRANSITION_EMAIL:
+            return
+
         from hypha.apply.funds.workflows import PHASES
 
         submission = source
@@ -185,7 +204,7 @@ class EmailAdapter(AdapterBase):
     def handle_co_applicant_invite(self, source, related, **kwargs):
         from hypha.apply.funds.utils import generate_invite_path
 
-        invited_user = User.objects.filter(email=related.invited_user_email).first()
+        invited_user = get_user_by_email(related.invited_user_email)
         can_accept = True
         if invited_user and (invited_user.is_org_faculty):
             can_accept = False
@@ -266,16 +285,19 @@ class EmailAdapter(AdapterBase):
             )
 
     def handle_batch_determination(self, determinations, sources, **kwargs):
-        submissions = sources
+        # Batch messages are sent one submission at a time, see
+        # `AdapterBase.batch_recipients`.
+        submission = sources[0]
+        determination = determinations[submission.id]
+        if not determination.send_notice:
+            return
         kwargs.pop("source")
-        for submission in submissions:
-            determination = determinations[submission.id]
-            return self.render_message(
-                "messages/email/determination.html",
-                source=submission,
-                determination=determination,
-                **kwargs,
-            )
+        return self.render_message(
+            "messages/email/determination.html",
+            source=submission,
+            determination=determination,
+            **kwargs,
+        )
 
     def handle_ready_for_review(self, request, source, **kwargs):
         if settings.SEND_READY_FOR_REVIEW:

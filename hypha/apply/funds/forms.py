@@ -23,7 +23,7 @@ from .models import (
 from .models.co_applicants import CoApplicantProjectPermission, CoApplicantRole
 from .permissions import can_change_external_reviewers
 from .utils import model_form_initial, render_icon
-from .widgets import MultiCheckboxesWidget
+from .widgets import ChoicesSelectMultipleWidget
 
 
 class ApplicationSubmissionModelForm(forms.ModelForm):
@@ -239,7 +239,7 @@ class BatchUpdateReviewersForm(forms.Form):
     )
     external_reviewers = forms.ModelMultipleChoiceField(
         queryset=User.objects.reviewers().only("pk", "full_name"),
-        widget=MultiCheckboxesWidget(attrs={"data-placeholder": _("Select...")}),
+        widget=ChoicesSelectMultipleWidget(attrs={"data-placeholder": _("Select...")}),
         label=_("External Reviewers"),
         required=False,
     )
@@ -386,7 +386,7 @@ class GroupedModelMultipleChoiceField(forms.ModelMultipleChoiceField):
 class UpdateMetaTermsForm(ApplicationSubmissionModelForm):
     meta_terms = GroupedModelMultipleChoiceField(
         queryset=None,  # updated in init method
-        widget=MultiCheckboxesWidget(attrs={"data-placeholder": _("Select...")}),
+        widget=ChoicesSelectMultipleWidget(attrs={"data-placeholder": _("Select...")}),
         label=_("Tags"),
         choices_groupby="get_parent",
         required=False,
@@ -461,11 +461,31 @@ class InviteCoApplicantForm(forms.ModelForm):
     def __init__(self, *args, submission, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.invited_by = user
+        self.submission = submission
 
         if submission:
             self.fields["submission"].initial = submission.id
             if not submission.projects.exists():
                 self.fields.pop("project_permission", None)
+
+    def clean_invited_user_email(self):
+        email = self.cleaned_data["invited_user_email"]
+        if (
+            self.submission
+            and self.submission.user
+            and self.submission.user.email.lower() == email.lower()
+        ):
+            raise forms.ValidationError(
+                _("The submission owner can not be invited as a co-applicant.")
+            )
+        if (
+            self.submission
+            and CoApplicantInvite.objects.filter(
+                submission=self.submission, invited_user_email__iexact=email
+            ).exists()
+        ):
+            raise forms.ValidationError(_("This email has already been invited."))
+        return email
 
     class Meta:
         model = CoApplicantInvite

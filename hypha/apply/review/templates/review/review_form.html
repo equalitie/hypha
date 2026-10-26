@@ -40,14 +40,16 @@
 
 {% block content %}
     <section class="flex relative gap-4 justify-between my-4" x-data="reviewScore">
-
-        <div class="absolute top-0 right-0 z-20 h-full lg:block" x-cloak>
+        <!-- Review score sticky display -->
+        <div class="flex absolute inset-y-0 right-0 z-20 flex-col justify-end pointer-events-none">
             <div
-                class="inline-block sticky top-1 py-1.5 px-3 mt-1 font-semibold text-center bg-neutral text-neutral-content float-end"
+                class="sticky bottom-4 py-1.5 px-3 shadow-sm pointer-events-auto bg-neutral text-neutral-content"
                 x-cloak
                 x-show="showScore"
             >
-                {% trans "Score:" %} <span x-text="totalScore">-</span>
+                <p class="font-semibold">{% trans "Score" %}</p>
+                <p>{% trans "Total:" %} <span x-text="totalScore">-</span></p>
+                <p>{% trans "Average:" %} <span x-text="averageScore">-</span></p>
             </div>
         </div>
 
@@ -80,24 +82,21 @@
                 {% endfor %}
 
                 <div class="items-center mt-4 card-actions">
-                    <button class="btn btn-primary" type="submit" name="submit">
+                    <button class="w-full sm:w-auto btn btn-primary" type="submit" name="submit">
                         {% trans "Submit" %}
                     </button>
                     {% if not object.id or object.is_draft %}
-                        <button class="btn btn-secondary btn-outline" type="submit" name="{{ form.draft_button_name }}" formnovalidate>
+                        <button class="w-full sm:w-auto btn btn-secondary btn-outline" type="submit" name="{{ form.draft_button_name }}" formnovalidate>
                             {% trans "Save draft" %}
                         </button>
                     {% endif %}
-                    <div class="text-fg-muted" x-cloak x-show="showScore">
-                        {% trans "Total Score:" %} <span x-text="totalScore"></span>
-                    </div>
                 </div>
 
             </form>
             <aside
                 x-cloak
                 x-show="showSubmission"
-                class="overflow-y-auto max-h-screen grow bg-base-200 card card-border lg:max-w-1/2"
+                class="overflow-y-auto sticky top-4 self-start max-h-[calc(100vh-2rem)] grow bg-base-200 card card-border lg:max-w-1/2"
             >
                 <div
                     class="card-body"

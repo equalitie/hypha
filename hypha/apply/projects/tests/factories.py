@@ -13,7 +13,7 @@ from hypha.apply.users.roles import APPROVER_GROUP_NAME, STAFF_GROUP_NAME
 from hypha.apply.users.tests.factories import GroupFactory, StaffFactory, UserFactory
 from hypha.home.factories import ApplySiteFactory
 
-from ..models.payment import Invoice, SupportingDocument
+from ..models.invoice import Invoice, SupportingDocument
 from ..models.project import (
     COMPLETE,
     INVOICING_AND_REPORTING,
@@ -24,6 +24,7 @@ from ..models.project import (
     PAFReviewersRole,
     Project,
     ProjectForm,
+    ProjectFormPointer,
     ProjectReportForm,
     ProjectSettings,
     ProjectSOWForm,
@@ -129,6 +130,14 @@ class ProjectFactory(factory.django.DjangoModelFactory):
         is_complete = factory.Trait(
             status=COMPLETE,
         )
+
+
+class ProjectFormPointerFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = ProjectFormPointer
+        skip_postgeneration_save = True
+
+    project = factory.SubFactory(ProjectFactory)
 
 
 class ProjectSettingsFactory(factory.django.DjangoModelFactory):

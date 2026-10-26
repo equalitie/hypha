@@ -525,6 +525,30 @@ class ProjectSOW(BaseStreamForm, AccessFormData, models.Model):
         verbose_name = pgettext_lazy("singular", "project SOW")
         verbose_name_plural = pgettext_lazy("plural", "project SOW")
 
+    def get_absolute_url(self):
+        return reverse("apply:projects:sow", kwargs={"pk": self.project.pk})
+
+    def __str__(self):
+        return _("Scope of Work for {project}").format(project=self.project)
+
+
+class ProjectFormPointer(models.Model):
+    """Due to the actual Project Form being embedded in the project object, this model serves as a way to differentiate activities between the project & project form"""
+
+    project = models.OneToOneField(
+        Project, related_name="pfp", on_delete=models.CASCADE
+    )
+
+    class Meta:
+        verbose_name = pgettext_lazy("singular", "project form")
+        verbose_name_plural = pgettext_lazy("plural", "project forms")
+
+    def get_absolute_url(self):
+        return reverse("apply:projects:approval", kwargs={"pk": self.project.pk})
+
+    def __str__(self):
+        return _("Project form for {project}").format(project=self.project)
+
 
 class ProjectBaseStreamForm(BaseStreamForm, models.Model):
     name = models.CharField(max_length=255)
@@ -586,7 +610,7 @@ class PAFReviewersRole(Orderable, ClusterableModel):
         FieldPanel("user_roles", widget=forms.CheckboxSelectMultiple),
     ]
 
-    class Meta:
+    class Meta(Orderable.Meta):
         verbose_name = _("PAF reviewers role")
         verbose_name_plural = _("PAF reviewers roles")
 
@@ -613,7 +637,7 @@ class ProjectReminderFrequency(Orderable, ClusterableModel):
         FieldPanel("relation", heading=_("Relation to report due date")),
     ]
 
-    class Meta:
+    class Meta(Orderable.Meta):
         verbose_name = _("project reminder frequency")
         verbose_name_plural = _("project reminder frequencies")
 

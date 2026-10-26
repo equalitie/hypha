@@ -176,7 +176,11 @@ class Invoice(models.Model):
         verbose_name_plural = _("invoices")
 
     def __str__(self):
-        return _("Invoice requested for {project}").format(project=self.project)
+        if not self.invoice_number:
+            return _("Invoice for {project}").format(project=self.project)
+        return _("Invoice {number} for {project}").format(
+            number=self.invoice_number, project=self.project
+        )
 
     @status_field.getter()
     def _get_object_status(self):
@@ -301,10 +305,7 @@ class Invoice(models.Model):
         return self.paid_value
 
     def get_absolute_url(self):
-        return reverse(
-            "apply:projects:invoice-detail",
-            kwargs={"pk": self.project.pk, "invoice_pk": self.pk},
-        )
+        return reverse("apply:projects:invoice-detail", kwargs={"pk": self.pk})
 
     @property
     def filename(self):
@@ -337,11 +338,7 @@ class SupportingDocument(models.Model):
     def get_absolute_url(self):
         return reverse(
             "apply:projects:invoice-supporting-document",
-            kwargs={
-                "pk": self.invoice.project.pk,
-                "invoice_pk": self.invoice.pk,
-                "file_pk": self.pk,
-            },
+            kwargs={"pk": self.invoice.pk, "file_pk": self.pk},
         )
 
 

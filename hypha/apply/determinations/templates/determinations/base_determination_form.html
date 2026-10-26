@@ -39,6 +39,15 @@
                 {% include "forms/includes/form_errors.html" with form=form %}
                 {% block determination_information %}{% endblock %}
 
+                {% if detailed_data_staff_only %}
+                    <div role="note" class="my-4 alert alert-info alert-soft">
+                        {% heroicon_outline "eye-slash" size=20 aria_hidden=true class="opacity-80 shrink-0" %}
+                        <span>
+                            {% trans "Only the determination message is visible for the applicant, the answers to the other questions are not." %}
+                        </span>
+                    </div>
+                {% endif %}
+
                 <form
                     class="form"
                     action="" method="post"
@@ -71,7 +80,7 @@
                     {% block form_buttons %}
                         <div class="mt-4 card-actions">
                             <button
-                                class="btn btn-primary"
+                                class="w-full sm:w-auto btn btn-primary"
                                 :disabled="isFormSubmitting"
                                 type="submit"
                                 name="submit"
@@ -79,7 +88,7 @@
 
                             {% if form.draft_button_name %}
                                 <button
-                                    class="btn btn-secondary btn-outline"
+                                    class="w-full sm:w-auto btn btn-secondary btn-outline"
                                     type="submit"
                                     name="{{ form.draft_button_name }}"
                                 >{% trans "Save draft" %}</button>
@@ -98,7 +107,7 @@
                 <aside
                     x-cloak
                     x-show="showSubmission"
-                    class="overflow-y-auto max-h-screen grow bg-base-200 card card-border lg:max-w-1/2"
+                    class="overflow-y-auto sticky top-4 self-start max-h-[calc(100vh-2rem)] grow bg-base-200 card card-border lg:max-w-1/2"
                 >
                     <div
                         class="card-body"

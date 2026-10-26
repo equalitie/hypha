@@ -32,8 +32,6 @@ from django_htmx.http import (
     HttpResponseClientRefresh,
 )
 from django_tables2 import SingleTableMixin
-from docx import Document
-from htmldocx import HtmlToDocx
 from rolepermissions.checkers import has_object_permission
 
 from hypha.apply.activity.adapters.utils import get_users_for_groups
@@ -108,6 +106,7 @@ from ..models.project import (
     PacketFile,
     PAFApprovals,
     Project,
+    ProjectFormPointer,
     ProjectSettings,
 )
 from ..permissions import has_permission
@@ -1993,6 +1992,10 @@ class ProjectSOWDownloadView(ProjectByIdMixin, SingleObjectMixin, View):
         html = template.render(context)
 
         buf = io.BytesIO()
+        # Imported here to keep python-docx (and lxml) out of memory until needed.
+        from docx import Document
+        from htmldocx import HtmlToDocx
+
         document = Document()
         new_parser = HtmlToDocx()
         new_parser.add_html_to_document(html, document)
@@ -2062,6 +2065,10 @@ class ProjectDetailDownloadView(ProjectByIdMixin, SingleObjectMixin, View):
         html = template.render(context)
 
         buf = io.BytesIO()
+        # Imported here to keep python-docx (and lxml) out of memory until needed.
+        from docx import Document
+        from htmldocx import HtmlToDocx
+
         document = Document()
         new_parser = HtmlToDocx()
         new_parser.add_html_to_document(html, document)
@@ -2233,8 +2240,28 @@ class ProjectFormEditView(ProjectFormsEditView):
                 pf_form_fields = self.get_pf_form_fields()
             except AttributeError:
                 pf_form_fields = []
+
+            # If the project form pointer doesn't already exist, this is a new project form
+            creating = not hasattr(self.object, "pfp")
+
             self.pf_form.save(pf_form_fields=pf_form_fields)
             self.pf_form.delete_temporary_files()
+
+            message = MESSAGES.EDITED_PF
+            if creating:
+                message = MESSAGES.CREATED_PF
+                pfp = ProjectFormPointer.objects.create(project=self.object)
+            else:
+                pfp = self.object.pfp
+
+            messenger(
+                message,
+                request=request,
+                user=request.user,
+                source=self.object.submission,
+                related=pfp,
+            )
+
             # remove PAF addition task for staff group
             remove_tasks_for_user(
                 code=PROJECT_WAITING_PF,
@@ -2338,8 +2365,21 @@ class ProjectSOWEditView(ProjectFormEditView):
                 except AttributeError:
                     sow_form_fields = []
 
+                creating = not hasattr(self.object, "sow")
+
                 self.sow_form.save(sow_form_fields=sow_form_fields, project=self.object)
                 self.sow_form.delete_temporary_files()
+
+                message = MESSAGES.EDITED_SOW
+                if creating:
+                    message = MESSAGES.CREATED_SOW
+                messenger(
+                    message,
+                    request=request,
+                    user=request.user,
+                    source=self.object.submission,
+                    related=self.object.sow,
+                )
                 # remove SOW addition task for staff group
                 remove_tasks_for_user(
                     code=PROJECT_WAITING_SOW,

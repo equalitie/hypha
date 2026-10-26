@@ -8,7 +8,7 @@ from django_slack import slack_message
 from hypha.apply.activity.adapters.base import AdapterBase
 from hypha.apply.activity.adapters.utils import link_to, reviewers_message
 from hypha.apply.activity.options import MESSAGES
-from hypha.apply.projects.models.payment import (
+from hypha.apply.projects.models.invoice import (
     APPROVED_BY_STAFF,
     CHANGES_REQUESTED_BY_FINANCE,
     PAID,
@@ -58,7 +58,7 @@ class SlackAdapter(AdapterBase):
             "<{link}|{source.title_text_display}> by {source.user} has been invited to submit a proposal"
         ),
         MESSAGES.NEW_REVIEW: _(
-            "{user} has submitted a review for <{link}|{source.title_text_display}>. Outcome: {review.outcome},  Score: {review.get_score_display}"
+            "{user} has submitted a review for <{link}|{source.title_text_display}>. Outcome: {review.outcome},  Score: {review.score_display}"
         ),
         MESSAGES.READY_FOR_REVIEW: "notify_reviewers",
         MESSAGES.OPENED_SEALED: _(

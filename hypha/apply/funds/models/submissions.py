@@ -14,6 +14,7 @@ from django.db import models
 from django.db.models import (
     Avg,
     Count,
+    Exists,
     FloatField,
     OuterRef,
     Q,
@@ -172,10 +173,18 @@ class ApplicationSubmissionQueryset(JSONOrderable):
         return self.filter(reviews__author__reviewer=user)
 
     def flagged_by(self, user):
-        return self.filter(flags__user=user, flags__type=Flag.USER)
+        return self.filter(
+            Exists(
+                Flag.objects.filter(
+                    submission=OuterRef("pk"), user=user, type=Flag.USER
+                )
+            )
+        )
 
     def flagged_staff(self):
-        return self.filter(flags__type=Flag.STAFF)
+        return self.filter(
+            Exists(Flag.objects.filter(submission=OuterRef("pk"), type=Flag.STAFF))
+        )
 
     def awaiting_determination_for(self, user):
         return self.filter(status__in=DETERMINATION_RESPONSE_PHASES).filter(lead=user)
@@ -248,7 +257,15 @@ class ApplicationSubmissionQueryset(JSONOrderable):
                 "previous__lead",
             )
             .prefetch_related("screening_statuses")
-            .defer("search_data", "search_document")
+            .defer(
+                "search_data",
+                "search_document",
+                # Only used to check if a previous stage exists, skip the large fields.
+                "previous__form_data",
+                "previous__form_fields",
+                "previous__search_data",
+                "previous__search_document",
+            )
         )
 
 
@@ -283,10 +300,17 @@ def transition_id(target, phase):
 
 
 def get_all_possible_states():
+    """The (status, label) choices for the status fields.
+
+    The label is the untranslated source name: these choices end up in
+    migrations, so they must not change with the active language. Nothing
+    displays them — the status is shown to users through the phase, see
+    `ApplicationSubmission.phase`.
+    """
     all_states = set()
     for workflow in WORKFLOWS.values():
         for phase_name, data in workflow.items():
-            all_states.add((phase_name, data.display_name))
+            all_states.add((phase_name, data.display_name_source))
     return sorted(all_states, key=lambda x: x[0])
 
 

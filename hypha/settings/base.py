@@ -48,7 +48,8 @@ WEBAUTHN_RP_ID = env.str("WEBAUTHN_RP_ID", None)
 WEBAUTHN_ORIGIN = env.str("WEBAUTHN_ORIGIN", None)
 WEBAUTHN_RP_NAME = env.str("WEBAUTHN_RP_NAME", None)
 
-# Set the allowed file extension for all uploads fields.
+# Set the allowed file extension for all uploads fields. The file inputs
+# "accept" attribute and help text are derived from this list.
 FILE_ALLOWED_EXTENSIONS = [
     "doc",
     "docx",
@@ -63,7 +64,6 @@ FILE_ALLOWED_EXTENSIONS = [
     "xls",
     "xlsx",
 ]
-FILE_ACCEPT_ATTR_VALUE = ", ".join(["." + ext for ext in FILE_ALLOWED_EXTENSIONS])
 
 # Make it possible for staff to anonymise users and applications.
 SUBMISSION_ANONYMIZATION_ENABLED = env.bool("SUBMISSION_ANONYMIZATION_ENABLED", False)
@@ -135,6 +135,9 @@ SEND_MESSAGES = env.bool("SEND_MESSAGES", False)
 # If automatic e-mails should be sent out to reviewers when submissions are ready for review.
 SEND_READY_FOR_REVIEW = env.bool("SEND_READY_FOR_REVIEW", True)
 
+# If automatic e-mails should be sent out to applicants when their submission changes status.
+SEND_TRANSITION_EMAIL = env.bool("SEND_TRANSITION_EMAIL", True)
+
 # Staff can upload the contract
 STAFF_UPLOAD_CONTRACT = env.bool("STAFF_UPLOAD_CONTRACT", False)
 
@@ -164,6 +167,17 @@ HIDE_STAFF_IDENTITY = env.bool("HIDE_STAFF_IDENTITY", False)
 
 # Should Applicant identities be obscured from External Reviewers
 HIDE_IDENTITY_FROM_REVIEWERS = env.bool("HIDE_IDENTITY_FROM_REVIEWERS", False)
+
+# Should form authors be able to mark application form fields as containing
+# personally identifiable information. Answers to marked fields are only shown
+# to the applicant, their co-applicants and staff.
+PII_FIELD_MARKING_ENABLED = env.bool("PII_FIELD_MARKING_ENABLED", False)
+
+# Should applicants be able to see the detailed answers of the determinations on
+# their own applications. The determination message is always shown to them.
+DETERMINATION_DETAILS_ACCESS_APPLICANT = env.bool(
+    "DETERMINATION_DETAILS_ACCESS_APPLICANT", True
+)
 
 # Should staff be able to access/see draft submissions.
 SUBMISSIONS_DRAFT_ACCESS_STAFF = env.bool("SUBMISSIONS_DRAFT_ACCESS_STAFF", False)
@@ -201,6 +215,16 @@ TRANSITION_AFTER_REVIEWS = env.bool("TRANSITION_AFTER_REVIEWS", False)
 
 # Default visibility for reviews.
 REVIEW_VISIBILITY_DEFAULT = env.str("REVIEW_VISIBILITY_DEFAULT", "private")
+
+# Show the total (sum) of a review's scored answers instead of the average of
+# them, wherever a review score is shown.
+REVIEW_SCORE_SHOW_TOTAL = env.bool("REVIEW_SCORE_SHOW_TOTAL", False)
+
+# Override labels of, or disable, review score choices. JSON object keyed by
+# score value; a string sets a new label, null/false/"" disables the choice.
+# Disabling the n/a choice (99) makes reviewers pick a score in required fields.
+# Example: {"0": null, "3": "3. Okay", "99": "n/a"}
+REVIEW_RATE_CHOICES = env.json("REVIEW_RATE_CHOICES", {})
 
 # Require an applicant to view their rendered application before submitting
 SUBMISSION_PREVIEW_REQUIRED = env.bool("SUBMISSION_PREVIEW_REQUIRED", True)

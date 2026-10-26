@@ -19,6 +19,7 @@ from wagtail.blocks import RichTextBlock
 
 from hypha.apply.activity.messaging import MESSAGES, messenger
 from hypha.apply.funds.models import ApplicationSubmission, AssignedReviewers
+from hypha.apply.funds.permissions import can_view_submission
 from hypha.apply.funds.workflows import INITIAL_STATE
 from hypha.apply.review.blocks import (
     RecommendationBlock,
@@ -55,6 +56,21 @@ def get_fields_for_stage(submission, user=None):
         return forms[0].form.form_fields
 
 
+def has_access_to_reviews(user, submission):
+    """Reviews are only accessible while the submission itself is.
+
+    Reviewer access to submissions can be limited in the Reviewer Settings. A
+    reviewer that loses access to a submission also loses access to the reviews
+    on it, including their own.
+    """
+    if user.is_apply_staff:
+        return True
+
+    # __ to avoid shadowing the gettext alias
+    submission_view, __ = can_view_submission(user, submission)
+    return submission_view
+
+
 @method_decorator(login_required, name="dispatch")
 class ReviewEditView(UserPassesTestMixin, BaseStreamForm, UpdateView):
     submission_form_class = ReviewModelForm
@@ -64,6 +80,8 @@ class ReviewEditView(UserPassesTestMixin, BaseStreamForm, UpdateView):
 
     def test_func(self):
         review = self.get_object()
+        if not has_access_to_reviews(self.request.user, review.submission):
+            return False
         return (
             self.request.user.has_perm("review.change_review")
             or self.request.user == review.author.reviewer
@@ -135,6 +153,9 @@ class ReviewCreateOrUpdateView(BaseStreamForm, CreateOrUpdateView):
         self.submission = get_object_or_404(
             ApplicationSubmission, id=self.kwargs["submission_pk"]
         )
+
+        if not has_access_to_reviews(request.user, self.submission):
+            raise PermissionDenied()
 
         if not self.submission.phase.permissions.can_review(
             request.user
@@ -217,6 +238,13 @@ def review_workflow_actions(request, submission):
         action = "proposal_internal_review"
     elif (
         transition_after
+        and submission.status == "ext_int_external_review"
+        and submission.reviews.by_reviewers().count() >= transition_after
+    ):
+        # Automatically transition the application to "Ready for discussion".
+        action = "ext_int_post_external_review_discussion"
+    elif (
+        transition_after
         and submission.status == submission_stepped_phases[2][0].name
         and submission.reviews.count() >= transition_after
     ):
@@ -285,6 +313,9 @@ class ReviewDisplay(UserPassesTestMixin, DetailView):
         if user.is_apply_staff:
             return True
 
+        if not has_access_to_reviews(user, submission):
+            return False
+
         if user == author:
             return True
 
@@ -337,6 +368,9 @@ class ReviewOpinionFormView(UserPassesTestMixin, CreateView):
 
         if user.is_apply_staff:
             return True
+
+        if not has_access_to_reviews(user, submission):
+            return False
 
         if user == author:
             return False
@@ -461,7 +495,7 @@ class ReviewListView(ListView):
                 {"opinions": review.opinions.select_related("author").all()}
             )
             review_data["opinions"]["answers"].append(opinions_html)
-            review_data["score"]["answers"].append(review.get_score_display)
+            review_data["score"]["answers"].append(review.score_display)
             review_data["recommendation"]["answers"].append(
                 review.get_recommendation_display()
             )
@@ -501,6 +535,8 @@ class ReviewDeleteView(UserPassesTestMixin, DeleteView):
 
     def test_func(self):
         review = self.get_object()
+        if not has_access_to_reviews(self.request.user, review.submission):
+            return False
         return (
             self.request.user.has_perm("review.delete_review")
             or self.request.user == review.author.reviewer
@@ -529,6 +565,9 @@ class ReviewOpinionDeleteView(DeleteView):
 
     def dispatch(self, request, *args, **kwargs):
         self.review_opinion = self.get_object()
+        submission = self.review_opinion.review.submission
+        if not has_access_to_reviews(self.request.user, submission):
+            raise PermissionDenied
         if self.request.user != self.review_opinion.author.reviewer:
             raise PermissionDenied
         return super().dispatch(request, *args, **kwargs)

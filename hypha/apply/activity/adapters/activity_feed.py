@@ -6,7 +6,6 @@ from django.utils.translation import gettext as _
 
 from hypha.apply.activity.models import ALL, APPLICANT, TEAM
 from hypha.apply.activity.options import MESSAGES
-from hypha.apply.funds.workflows.constants import PHASE_BG_COLORS
 from hypha.apply.projects.utils import (
     get_invoice_public_status,
     get_invoice_status_display_value,
@@ -39,6 +38,7 @@ class ActivityAdapter(AdapterBase):
         MESSAGES.REVIEWERS_UPDATED: "reviewers_updated",
         MESSAGES.BATCH_REVIEWERS_UPDATED: "batch_reviewers_updated",
         MESSAGES.NEW_REVIEW: _("Submitted a review"),
+        MESSAGES.EDIT_REVIEW: "handle_edit_review",
         MESSAGES.OPENED_SEALED: _("Opened the submission while still sealed"),
         MESSAGES.SCREENING: "handle_screening_statuses",
         MESSAGES.REVIEW_OPINION: _(
@@ -50,6 +50,10 @@ class ActivityAdapter(AdapterBase):
         MESSAGES.CREATED_PROJECT: _(
             'Created project with initial status of "{status}"'
         ),
+        MESSAGES.CREATED_SOW: _('Created SOW for project "{related.project}"'),
+        MESSAGES.EDITED_SOW: _('Edited SOW for project "{related.project}"'),
+        MESSAGES.CREATED_PF: _('Created project form for project "{related.project}"'),
+        MESSAGES.EDITED_PF: _('Edited project form for project "{related.project}"'),
         MESSAGES.PROJECT_TRANSITION: "handle_project_transition",
         MESSAGES.UPDATE_PROJECT_TITLE: _(
             "updated the project title from {old_title} to {source.title}"
@@ -94,10 +98,15 @@ class ActivityAdapter(AdapterBase):
             MESSAGES.DELETE_REVIEW_OPINION,
             MESSAGES.BATCH_REVIEWERS_UPDATED,
             MESSAGES.APPROVE_PROJECT,
+            MESSAGES.CREATED_SOW,
+            MESSAGES.EDITED_SOW,
+            MESSAGES.CREATED_PF,
+            MESSAGES.EDITED_PF,
             MESSAGES.REQUEST_PROJECT_CHANGE,
             MESSAGES.SEND_FOR_APPROVAL,
             MESSAGES.APPROVE_PAF,
             MESSAGES.NEW_REVIEW,
+            MESSAGES.EDIT_REVIEW,
             MESSAGES.UPDATE_PROJECT_LEAD,
             MESSAGES.UPDATE_LEAD,
             MESSAGES.BATCH_UPDATE_LEAD,
@@ -156,6 +165,11 @@ class ActivityAdapter(AdapterBase):
             ]
         )
         return " ".join(base)
+
+    def handle_edit_review(self, review, user, **kwargs):
+        if review.author.reviewer == user:
+            return _("Edited their review")
+        return _("Edited the review by {author}").format(author=review.author)
 
     def batch_determination(self, sources, determinations, **kwargs):
         submission = sources[0]
@@ -227,9 +241,8 @@ class ActivityAdapter(AdapterBase):
         )
 
     def handle_transition(self, old_phase, source, **kwargs):
-        def wrap_in_color_class(text):
-            color_class = PHASE_BG_COLORS.get(text, "")
-            return f'<span class="rounded-full inline-block px-2 py-0.5 font-medium text-gray-800 {color_class}">{text}</span>'
+        def wrap_in_color_class(phase, text):
+            return f'<span class="rounded-full inline-block px-2 py-0.5 font-medium text-gray-800 {phase.bg_color}">{text}</span>'
 
         submission = source
         base_message = _("Progressed from {old_display} to {new_display}")
@@ -237,8 +250,8 @@ class ActivityAdapter(AdapterBase):
         new_phase = submission.phase
 
         staff_message = base_message.format(
-            old_display=wrap_in_color_class(old_phase.display_name),
-            new_display=wrap_in_color_class(new_phase.display_name),
+            old_display=wrap_in_color_class(old_phase, old_phase.display_name),
+            new_display=wrap_in_color_class(new_phase, new_phase.display_name),
         )
 
         if new_phase.permissions.can_view(submission.user):
@@ -249,8 +262,8 @@ class ActivityAdapter(AdapterBase):
                 )
 
             applicant_message = base_message.format(
-                old_display=wrap_in_color_class(old_phase.public_name),
-                new_display=wrap_in_color_class(new_phase.public_name),
+                old_display=wrap_in_color_class(old_phase, old_phase.public_name),
+                new_display=wrap_in_color_class(new_phase, new_phase.public_name),
             )
 
             return json.dumps(
