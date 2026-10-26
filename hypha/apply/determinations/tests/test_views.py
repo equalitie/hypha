@@ -2,18 +2,50 @@ import urllib
 
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core import mail
 from django.test import RequestFactory, override_settings
 from django.urls import reverse_lazy
 
 from hypha.apply.activity.models import Activity
+from hypha.apply.determinations.blocks import (
+    DeterminationMessageBlock,
+    SendNoticeBlock,
+)
 from hypha.apply.determinations.options import ACCEPTED, NEEDS_MORE_INFO, REJECTED
 from hypha.apply.determinations.views import BatchDeterminationCreateView
-from hypha.apply.funds.tests.factories import ApplicationSubmissionFactory
+from hypha.apply.funds.models.co_applicants import (
+    CoApplicant,
+    CoApplicantInvite,
+    CoApplicantInviteStatus,
+)
+from hypha.apply.funds.models.forms import RoundBaseDeterminationForm
+from hypha.apply.funds.tests.factories import ApplicationSubmissionFactory, RoundFactory
 from hypha.apply.projects.models.project import CONTRACTING, DRAFT
-from hypha.apply.users.tests.factories import StaffFactory, UserFactory
+from hypha.apply.users.roles import APPLICANT_GROUP_NAME
+from hypha.apply.users.tests.factories import (
+    ApplicantFactory,
+    GroupFactory,
+    ReviewerFactory,
+    StaffFactory,
+    UserFactory,
+)
 from hypha.apply.utils.testing import BaseViewTestCase
 
-from .factories import DeterminationFactory
+from .factories import (
+    DeterminationFactory,
+    DeterminationFormFactory,
+    DeterminationFormFieldsFactory,
+)
+
+
+def make_co_applicant(submission, user):
+    """Create a CoApplicant on the submission."""
+    invite = CoApplicantInvite.objects.create(
+        submission=submission,
+        invited_user_email=user.email,
+        status=CoApplicantInviteStatus.ACCEPTED,
+    )
+    return CoApplicant.objects.create(submission=submission, user=user, invite=invite)
 
 
 class StaffDeterminationsTestCase(BaseViewTestCase):
@@ -33,6 +65,16 @@ class StaffDeterminationsTestCase(BaseViewTestCase):
         self.assertContains(response, determination.submission.title)
         self.assertContains(response, self.user.full_name)
         self.assertContains(response, submission.get_absolute_url())
+
+    @override_settings(DETERMINATION_DETAILS_ACCESS_APPLICANT=False)
+    def test_can_see_detailed_data_when_hidden_from_applicants(self):
+        submission = ApplicationSubmissionFactory(status="in_discussion")
+        determination = DeterminationFactory(
+            submission=submission, author=self.user, submitted=True
+        )
+        response = self.get_page(determination)
+        self.assertTrue(response.context["show_detailed_data"])
+        self.assertContains(response, "Goals and principles")
 
     def test_lead_can_access_determination(self):
         submission = ApplicationSubmissionFactory(
@@ -202,8 +244,10 @@ class DeterminationFormTestCase(BaseViewTestCase):
 
         # Confirm a Project was not created for either submission since it's
         # not in the final stage of its workflow.
-        self.assertFalse(hasattr(submission_original, "project"))
-        self.assertFalse(hasattr(submission_next, "project"))
+        self.assertFalse(submission_original.projects.exists())
+        self.assertFalse(
+            submission_next.projects.exists() if submission_next else False
+        )
 
     def test_first_stage_rejected_determination_does_not_create_project(self):
         submission = ApplicationSubmissionFactory(
@@ -232,7 +276,7 @@ class DeterminationFormTestCase(BaseViewTestCase):
 
         # Confirm a Project was not created for the original
         # ApplicationSubmission.
-        self.assertFalse(hasattr(submission_original, "project"))
+        self.assertFalse(submission_original.projects.exists())
 
     def test_second_stage_accepted_determination_creates_project(self):
         submission = ApplicationSubmissionFactory(
@@ -260,8 +304,10 @@ class DeterminationFormTestCase(BaseViewTestCase):
         # applications flow.
         self.assertIsNone(submission_next)
 
-        self.assertTrue(hasattr(submission_original, "project"))
-        self.assertFalse(hasattr(submission_next, "project"))
+        self.assertTrue(submission_original.projects.exists())
+        self.assertFalse(
+            submission_next.projects.exists() if submission_next else False
+        )
 
     def test_second_stage_rejected_determination_does_not_create_project(self):
         submission = ApplicationSubmissionFactory(
@@ -288,7 +334,7 @@ class DeterminationFormTestCase(BaseViewTestCase):
         # applications flow.
         self.assertIsNone(submission_next)
 
-        self.assertFalse(hasattr(submission_original, "project"))
+        self.assertFalse(submission_original.projects.exists())
 
     def test_single_stage_accepted_determination_creates_project(self):
         submission = ApplicationSubmissionFactory(
@@ -312,7 +358,7 @@ class DeterminationFormTestCase(BaseViewTestCase):
         submission_next = submission_original.next
 
         self.assertIsNone(submission_next)
-        self.assertTrue(hasattr(submission_original, "project"))
+        self.assertTrue(submission_original.projects.exists())
 
     def test_single_stage_rejected_determination_does_not_create_project(self):
         submission = ApplicationSubmissionFactory(
@@ -336,7 +382,7 @@ class DeterminationFormTestCase(BaseViewTestCase):
         submission_next = submission_original.next
 
         self.assertIsNone(submission_next)
-        self.assertFalse(hasattr(submission_original, "project"))
+        self.assertFalse(submission_original.projects.exists())
 
     @override_settings(PROJECTS_DEFAULT_STATUS="contracting")
     def test_auto_creation_uses_status_settings(self):
@@ -357,8 +403,8 @@ class DeterminationFormTestCase(BaseViewTestCase):
         )
 
         submission_original = self.refresh(submission)
-        self.assertTrue(hasattr(submission_original, "project"))
-        self.assertEqual(submission.project.status, CONTRACTING)
+        self.assertTrue(submission_original.projects.exists())
+        self.assertEqual(submission.projects.first().status, CONTRACTING)
 
     @override_settings(PROJECTS_DEFAULT_STATUS="garbage")
     def test_auto_creation_uses_draft_when_invalid_status_settings(self):
@@ -379,8 +425,8 @@ class DeterminationFormTestCase(BaseViewTestCase):
         )
 
         submission_original = self.refresh(submission)
-        self.assertTrue(hasattr(submission_original, "project"))
-        self.assertEqual(submission.project.status, DRAFT)
+        self.assertTrue(submission_original.projects.exists())
+        self.assertEqual(submission.projects.first().status, DRAFT)
 
     @override_settings(PROJECTS_AUTO_CREATE=False)
     def test_disabling_project_auto_creation_stops_projects_being_created(self):
@@ -405,7 +451,7 @@ class DeterminationFormTestCase(BaseViewTestCase):
         submission_next = submission_original.next
 
         self.assertIsNone(submission_next)
-        self.assertFalse(hasattr(submission_original, "project"))
+        self.assertFalse(submission_original.projects.exists())
 
     @override_settings(PROJECTS_ENABLED=False, PROJECTS_AUTO_CREATE=True)
     def test_disabling_projects_ignores_auto_creation_setting(self):
@@ -430,7 +476,7 @@ class DeterminationFormTestCase(BaseViewTestCase):
         submission_next = submission_original.next
 
         self.assertIsNone(submission_next)
-        self.assertFalse(hasattr(submission_original, "project"))
+        self.assertFalse(submission_original.projects.exists())
 
 
 class BatchDeterminationTestCase(BaseViewTestCase):
@@ -556,6 +602,155 @@ class BatchDeterminationTestCase(BaseViewTestCase):
         # 5 base - 1 x django messages, 1 x activity feed, 1 x email, 1 x slack
         # plus 1 extra for unable to determine
         self.assertEqual(len(response.context["messages"]), 5)
+
+
+class ApplicantDeterminationDetailTestCase(BaseViewTestCase):
+    user_factory = ApplicantFactory
+    url_name = "funds:submissions:determinations:{}"
+    base_view_name = "detail"
+
+    def get_kwargs(self, instance):
+        return {"submission_pk": instance.submission.id, "pk": instance.pk}
+
+    def determination_for_user(self):
+        submission = ApplicationSubmissionFactory(
+            status="in_discussion", user=self.user
+        )
+        return DeterminationFactory(submission=submission, submitted=True)
+
+    def test_can_see_detailed_data_by_default(self):
+        determination = self.determination_for_user()
+        response = self.get_page(determination)
+        self.assertTrue(response.context["show_detailed_data"])
+        self.assertContains(response, "Goals and principles")
+
+    @override_settings(DETERMINATION_DETAILS_ACCESS_APPLICANT=False)
+    def test_cant_see_detailed_data_when_disabled(self):
+        determination = self.determination_for_user()
+        response = self.get_page(determination)
+        self.assertFalse(response.context["show_detailed_data"])
+        self.assertNotContains(response, "Goals and principles")
+        # The determination message is always shown to the applicant.
+        self.assertContains(response, determination.message)
+
+
+class ReviewerDeterminationDetailTestCase(BaseViewTestCase):
+    user_factory = ReviewerFactory
+    url_name = "funds:submissions:determinations:{}"
+    base_view_name = "detail"
+
+    def get_kwargs(self, instance):
+        return {"submission_pk": instance.submission.id, "pk": instance.pk}
+
+    def determination_for_user(self):
+        """A determination on the reviewer's own application.
+
+        Users can hold both roles; ViewDispatcher routes them to the reviewer
+        view because it checks `is_reviewer` before `is_applicant`.
+        """
+        self.user.groups.add(GroupFactory(name=APPLICANT_GROUP_NAME))
+        submission = ApplicationSubmissionFactory(
+            status="in_discussion", user=self.user
+        )
+        return DeterminationFactory(submission=submission, submitted=True)
+
+    def test_can_see_detailed_data_on_other_submissions(self):
+        determination = DeterminationFactory(
+            submission=ApplicationSubmissionFactory(status="in_discussion"),
+            submitted=True,
+        )
+        response = self.get_page(determination)
+        self.assertTrue(response.context["show_detailed_data"])
+
+    def test_can_see_detailed_data_on_own_submission_by_default(self):
+        determination = self.determination_for_user()
+        response = self.get_page(determination)
+        self.assertTrue(response.context["show_detailed_data"])
+
+    @override_settings(DETERMINATION_DETAILS_ACCESS_APPLICANT=False)
+    def test_cant_see_detailed_data_on_own_submission_when_disabled(self):
+        determination = self.determination_for_user()
+        response = self.get_page(determination)
+        self.assertFalse(response.context["show_detailed_data"])
+        self.assertNotContains(response, "Goals and principles")
+        # The determination message is always shown to the applicant.
+        self.assertContains(response, determination.message)
+
+    @override_settings(DETERMINATION_DETAILS_ACCESS_APPLICANT=False)
+    def test_cant_see_detailed_data_as_co_applicant_when_disabled(self):
+        submission = ApplicationSubmissionFactory(status="in_discussion")
+        make_co_applicant(submission, self.user)
+        determination = DeterminationFactory(submission=submission, submitted=True)
+        response = self.get_page(determination)
+        self.assertFalse(response.context["show_detailed_data"])
+
+
+@override_settings(SEND_MESSAGES=True)
+class BatchDeterminationStreamFormTestCase(BaseViewTestCase):
+    """Batch determinations for submissions using streamfield determination forms."""
+
+    user_factory = StaffFactory
+    url_name = "funds:submissions:determinations:{}"
+    base_view_name = "batch"
+
+    def setUp(self):
+        super().setUp()
+        self.determination_form = DeterminationFormFactory()
+        round_page = RoundFactory()
+        RoundBaseDeterminationForm.objects.create(
+            round=round_page, form=self.determination_form
+        )
+        self.submissions = ApplicationSubmissionFactory.create_batch(
+            2, round=round_page
+        )
+        mail.outbox.clear()
+
+    def field_id(self, block_type):
+        return next(
+            field.id
+            for field in self.determination_form.form_fields
+            if isinstance(field.block, block_type)
+        )
+
+    def batch_determine(self, message, send_notice=True):
+        url = (
+            self.url(None)
+            + "?submissions="
+            + ",".join([str(submission.id) for submission in self.submissions])
+            + "&action=rejected"
+        )
+        data = DeterminationFormFieldsFactory.form_response(
+            self.determination_form.form_fields,
+            {self.field_id(DeterminationMessageBlock): message},
+        )
+        if not send_notice:
+            # An unchecked checkbox is simply not submitted.
+            del data[self.field_id(SendNoticeBlock)]
+        return self.client.post(url, data, secure=True, follow=True)
+
+    def applicant_emails(self, submission):
+        return [email for email in mail.outbox if submission.user.email in email.to]
+
+    def test_determination_message_is_included_in_applicant_email(self):
+        message = "Sorry, not this time."
+        self.batch_determine(message)
+
+        # Every submission in the batch gets its own email, about its own
+        # submission and carrying the determination message.
+        for submission in self.submissions:
+            emails = self.applicant_emails(submission)
+            self.assertEqual(len(emails), 1)
+            self.assertIn(message, emails[0].body)
+            self.assertIn(submission.get_absolute_url(), emails[0].body)
+
+    def test_no_applicant_email_if_send_notice_is_unchecked(self):
+        self.batch_determine("Sorry, not this time.", send_notice=False)
+
+        for submission in self.submissions:
+            determination = submission.determinations.first()
+            self.assertIsNotNone(determination)
+            self.assertFalse(determination.send_notice)
+            self.assertEqual(self.applicant_emails(submission), [])
 
 
 class UserDeterminationFormTestCase(BaseViewTestCase):

@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 
 from ..constants import DRAFT_STATE, INITIAL_STATE, UserPermissions
 from ..models.stage import RequestSame
@@ -33,7 +33,7 @@ SingleStageSameDefinition = [
             "transitions": {
                 "same_more_info": _("Request More Information"),
                 "same_internal_review": _("Open Review"),
-                "same_determination": _("Ready For Determination"),
+                "same_determination": _("Ready for Determination"),
                 "same_rejected": _("Dismiss"),
             },
             "display": _("Need screening"),
@@ -67,8 +67,8 @@ SingleStageSameDefinition = [
                 INITIAL_STATE: _("Need screening (revert)"),
             },
             "display": _("Review"),
-            "public": _("{org_short_name} Review").format(
-                org_short_name=settings.ORG_SHORT_NAME
+            "public": _("{ORG_SHORT_NAME} Review").format(
+                ORG_SHORT_NAME=settings.ORG_SHORT_NAME
             ),
             "stage": RequestSame,
             "permissions": reviewer_review_permissions,
@@ -78,11 +78,11 @@ SingleStageSameDefinition = [
         "same_post_review_discussion": {
             "transitions": {
                 "same_post_review_more_info": _("Request More Information"),
-                "same_determination": _("Ready For Determination"),
+                "same_determination": _("Ready for Determination"),
                 "same_internal_review": _("Open Review (revert)"),
                 "same_rejected": _("Dismiss"),
             },
-            "display": _("Ready For Discussion"),
+            "display": _("Ready for Discussion"),
             "stage": RequestSame,
             "permissions": hidden_from_applicant_permissions,
         },
@@ -108,7 +108,7 @@ SingleStageSameDefinition = [
     {
         "same_determination": {
             "transitions": {
-                "same_post_review_discussion": _("Ready For Discussion (revert)"),
+                "same_post_review_discussion": _("Ready for Discussion (revert)"),
                 "same_almost": _("Accept but additional info required"),
                 "same_accepted": _("Accept"),
                 "same_rejected": _("Dismiss"),
@@ -128,7 +128,7 @@ SingleStageSameDefinition = [
         "same_almost": {
             "transitions": {
                 "same_accepted": _("Accept"),
-                "same_post_review_discussion": _("Ready For Discussion (revert)"),
+                "same_post_review_discussion": _("Ready for Discussion (revert)"),
             },
             "display": _("Accepted but additional info required"),
             "stage": RequestSame,

@@ -2,6 +2,7 @@ from django.urls import reverse
 
 from hypha.apply.activity.models import Activity
 from hypha.apply.funds.models import ApplicationSubmission
+from hypha.apply.funds.models.reviewer_role import ReviewerSettings
 from hypha.apply.funds.tests.factories.models import (
     ApplicationSubmissionFactory,
     AssignedReviewersFactory,
@@ -9,6 +10,7 @@ from hypha.apply.funds.tests.factories.models import (
 from hypha.apply.funds.workflows import INITIAL_STATE
 from hypha.apply.users.tests.factories import ReviewerFactory, StaffFactory, UserFactory
 from hypha.apply.utils.testing.tests import BaseViewTestCase
+from hypha.home.factories import ApplySiteFactory
 
 from ..models import Review, ReviewOpinion
 from ..options import AGREE, DISAGREE, NA
@@ -196,22 +198,31 @@ class TestReviewScore(BaseViewTestCase):
     def test_score_calculated(self):
         review = self.submit_review_scores((5,), (5,))
         self.assertEqual(review.score, 5)
+        self.assertEqual(review.total_score, 5 + 5)
 
     def test_average_score_calculated(self):
         review = self.submit_review_scores((1, 5), (1, 5))
         self.assertEqual(review.score, (1 + 5) / 2)
+        self.assertEqual(review.total_score, 1 + 5 + 1 + 5)
 
     def test_no_score_is_NA(self):
         review = self.submit_review_scores()
         self.assertEqual(review.score, NA)
+        self.assertIsNone(review.total_score)
 
     def test_na_included_in_review_average(self):
         review = self.submit_review_scores((NA, 5))
         self.assertEqual(review.score, 2.5)
 
+    def test_na_counts_as_zero_in_total_score(self):
+        review = self.submit_review_scores((NA, 5))
+        self.assertEqual(review.total_score, 5)
+
     def test_na_included_reviews_average(self):
+        # A lone NA scores 0 for the review, which is then included in the
+        # aggregate (only reviews whose overall score is NA are excluded).
         self.submit_review_scores((NA,))
-        self.assertIsNotNone(Review.objects.score())
+        self.assertEqual(Review.objects.score(), 0)
 
     def test_na_included_multiple_reviews_average(self):
         self.submit_review_scores((NA,))
@@ -252,7 +263,7 @@ class ReviewDetailTestCase(BaseViewTestCase):
         )
         response = self.get_page(review)
         self.assertContains(response, submission.title)
-        self.assertContains(response, "<p>Yes</p>")
+        self.assertContains(response, "Yes")
 
     def test_review_detail_opinion(self):
         staff = StaffFactory()
@@ -545,3 +556,101 @@ class ReviewWorkFlowActionTestCase(BaseViewTestCase):
         self.post_page(submission, data, "form")
         submission = ApplicationSubmission.objects.get(id=submission.id)
         self.assertEqual(submission.status, "proposal_internal_review")
+
+
+class ReviewerSubmissionAccessTestCase(BaseViewTestCase):
+    """Reviewers that lose access to a submission lose access to its reviews.
+
+    Access for reviewers is configured in Wagtail Admin > Apply > Reviewer
+    Settings, here limited to accepted submissions only.
+    """
+
+    user_factory = ReviewerFactory
+    url_name = "funds:submissions:reviews:{}"
+    base_view_name = "review"
+
+    def get_kwargs(self, instance):
+        return {"pk": instance.id, "submission_pk": instance.submission.id}
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        apply_site = ApplySiteFactory()
+        reviewer_settings, _ = ReviewerSettings.objects.get_or_create(
+            site_id=apply_site.id
+        )
+        reviewer_settings.use_settings = True
+        reviewer_settings.outcome = "accepted"
+        reviewer_settings.save()
+
+    def review_without_access(self):
+        submission = ApplicationSubmissionFactory(
+            status="external_review", workflow_stages=2
+        )
+        return ReviewFactory(submission=submission, author__reviewer=self.user)
+
+    def test_cant_view_own_review(self):
+        review = self.review_without_access()
+        response = self.get_page(review)
+        self.assertEqual(response.status_code, 403)
+
+    def test_cant_edit_own_review(self):
+        review = self.review_without_access()
+        response = self.get_page(review, "edit")
+        self.assertEqual(response.status_code, 403)
+
+    def test_cant_delete_own_review(self):
+        review = self.review_without_access()
+        response = self.post_page(review, {}, "delete")
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Review.objects.filter(id=review.id).exists())
+
+    def test_cant_access_review_form(self):
+        submission = ApplicationSubmissionFactory(
+            status="external_review", workflow_stages=2, reviewers=[self.user]
+        )
+        response = self.client.get(
+            reverse(
+                "funds:submissions:reviews:form",
+                kwargs={"submission_pk": submission.id},
+            ),
+            secure=True,
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_can_view_own_review_with_access(self):
+        submission = ApplicationSubmissionFactory(
+            status="proposal_accepted", workflow_stages=2
+        )
+        review = ReviewFactory(submission=submission, author__reviewer=self.user)
+        response = self.get_page(review)
+        self.assertEqual(response.status_code, 200)
+
+
+class StaffReviewerSettingsTestCase(BaseViewTestCase):
+    """Reviewer Settings restrict reviewers, staff keep their access."""
+
+    user_factory = StaffFactory
+    url_name = "funds:submissions:reviews:{}"
+    base_view_name = "review"
+
+    def get_kwargs(self, instance):
+        return {"pk": instance.id, "submission_pk": instance.submission.id}
+
+    def test_staff_can_view_review(self):
+        apply_site = ApplySiteFactory()
+        reviewer_settings, _ = ReviewerSettings.objects.get_or_create(
+            site_id=apply_site.id
+        )
+        reviewer_settings.use_settings = True
+        reviewer_settings.outcome = "accepted"
+        reviewer_settings.save()
+
+        submission = ApplicationSubmissionFactory(
+            status="external_review", workflow_stages=2
+        )
+        review = ReviewFactory(
+            submission=submission, author__reviewer=self.user, author__staff=True
+        )
+        response = self.get_page(review)
+        self.assertEqual(response.status_code, 200)

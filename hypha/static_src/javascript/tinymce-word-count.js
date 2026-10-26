@@ -8,13 +8,6 @@
    * @param {HTMLElement} element - Target element to process
    */
   function updateWordCount(element) {
-    const currentCount = parseInt(element.innerText.match(/\d+/)?.[0], 10) || 0;
-    const limit = parseInt(
-      element.closest("div[data-word-limit]").dataset.wordLimit,
-      10
-    );
-    const warningThreshold = limit * WARNING_THRESHOLD;
-
     /**
      * Clear warning states and classes
      */
@@ -23,21 +16,37 @@
       element.classList.remove("word-count-warning", "word-count-warning-2");
     }
 
-    if (element.textContent.includes("characters")) {
+    const currentCount = parseInt(element.innerText.match(/\d+/)?.[0], 10) || 0;
+    const fieldset = element.closest("[data-word-limit]");
+    const limit = parseInt(fieldset?.dataset.wordLimit, 10);
+
+    // Without a usable word limit there is nothing to count against.
+    if (Number.isNaN(limit)) {
       clearWarnings();
       return;
     }
 
-    element.dataset.afterWordCount = ` out of ${limit}`;
+    const warningThreshold = limit * WARNING_THRESHOLD;
+    const textCharacters = fieldset.dataset.wordCountCharacters || "characters";
+    const textOutOf = fieldset.dataset.wordCountOutOf || "out of";
+    const textClose = fieldset.dataset.wordCountClose || "(Close to the limit)";
+    const textOver = fieldset.dataset.wordCountOver || "(Over the limit)";
+
+    if (element.textContent.includes(textCharacters)) {
+      clearWarnings();
+      return;
+    }
+
+    element.dataset.afterWordCount = ` ${textOutOf} ${limit}`;
 
     if (currentCount <= warningThreshold) {
       clearWarnings();
     } else if (currentCount <= limit) {
-      element.dataset.afterWordCount += " (Close to the limit)";
+      element.dataset.afterWordCount += ` ${textClose}`;
       element.classList.remove("word-count-warning-2");
       element.classList.add("word-count-warning");
     } else {
-      element.dataset.afterWordCount += " (Over the limit)";
+      element.dataset.afterWordCount += ` ${textOver}`;
       element.classList.add("word-count-warning-2");
     }
   }

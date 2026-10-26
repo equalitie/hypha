@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.urls import reverse
@@ -9,7 +10,6 @@ from wagtail.fields import StreamField
 from hypha.apply.funds.models.mixins import AccessFormData
 from hypha.apply.stream_forms.models import BaseStreamForm
 from hypha.apply.users.roles import (
-    PARTNER_GROUP_NAME,
     REVIEWER_GROUP_NAME,
     STAFF_GROUP_NAME,
 )
@@ -23,6 +23,7 @@ from .blocks import (
     VisibilityBlock,
 )
 from .options import (
+    AGREE,
     DISAGREE,
     MAYBE,
     NA,
@@ -42,7 +43,7 @@ class ReviewFormFieldsMixin(models.Model):
     class Meta:
         abstract = True
 
-    form_fields = StreamField(ReviewCustomFormFieldsBlock(), use_json_field=True)
+    form_fields = StreamField(ReviewCustomFormFieldsBlock())
 
     @property
     def score_fields(self):
@@ -63,6 +64,30 @@ class ReviewFormFieldsMixin(models.Model):
     @property
     def comment_field(self):
         return self._get_field_type(RecommendationCommentsBlock)
+
+    def get_scores(self, data):
+        """Return the individual scores held in ``data``.
+
+        ``data`` is keyed by form field id - a review's ``form_data`` or the
+        cleaned data of a review form - with scored answers deserialised to
+        ``[comment, score]``. NA answers count as 0.
+        """
+        scores = []
+        for field in self.score_fields:
+            score = data.get(field.id)[1]
+            # Include NA answers as 0.
+            if int(score) == NA:
+                score = 0
+            scores.append(int(score))
+        # Check if there are score_fields_without_text and also
+        # append scores from them.
+        for field in self.score_fields_without_text:
+            score = data.get(field.id)
+            # Include '' answers as 0.
+            if score == "":
+                score = 0
+            scores.append(int(score))
+        return scores
 
     def _get_field_type(self, block_type, many=False):
         fields = []
@@ -87,6 +112,10 @@ class ReviewForm(ReviewFormFieldsMixin, models.Model):
         FieldPanel("form_fields"),
     ]
 
+    class Meta:
+        verbose_name = _("review form")
+        verbose_name_plural = _("review forms")
+
     def __str__(self):
         return self.name
 
@@ -103,9 +132,6 @@ class ReviewQuerySet(models.QuerySet):
 
     def by_reviewers(self):
         return self.submitted()._by_group(REVIEWER_GROUP_NAME)
-
-    def by_partners(self):
-        return self.submitted()._by_group(PARTNER_GROUP_NAME)
 
     def by_user(self, user):
         return self.submitted().filter(author__reviewer=user).order_by("-created_at")
@@ -166,16 +192,21 @@ class Review(ReviewFormFieldsMixin, BaseStreamForm, AccessFormData, models.Model
     form_data = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
 
     recommendation = models.IntegerField(
-        verbose_name=_("Recommendation"), choices=RECOMMENDATION_CHOICES, default=0
+        verbose_name=_("recommendation"), choices=RECOMMENDATION_CHOICES, default=0
     )
+    # Average of the individual scores given in the review.
     score = models.DecimalField(max_digits=10, decimal_places=1, default=0)
-    is_draft = models.BooleanField(default=False, verbose_name=_("Draft"))
-    created_at = models.DateTimeField(
-        verbose_name=_("Creation time"), auto_now_add=True
+    # Sum of the individual scores given in the review.
+    total_score = models.DecimalField(
+        max_digits=10, decimal_places=1, null=True, blank=True
     )
-    updated_at = models.DateTimeField(verbose_name=_("Update time"), auto_now=True)
+    is_draft = models.BooleanField(default=False, verbose_name=_("draft"))
+    created_at = models.DateTimeField(
+        verbose_name=_("creation time"), auto_now_add=True
+    )
+    updated_at = models.DateTimeField(verbose_name=_("update time"), auto_now=True)
     visibility = models.CharField(
-        verbose_name=_("Visibility"),
+        verbose_name=_("visibility"),
         choices=VISIBILITY.items(),
         default=PRIVATE,
         max_length=10,
@@ -185,6 +216,8 @@ class Review(ReviewFormFieldsMixin, BaseStreamForm, AccessFormData, models.Model
 
     class Meta:
         unique_together = ("author", "submission")
+        verbose_name = _("review")
+        verbose_name_plural = _("reviews")
 
     @property
     def outcome(self):
@@ -199,11 +232,25 @@ class Review(ReviewFormFieldsMixin, BaseStreamForm, AccessFormData, models.Model
     def get_score_display(self):
         return "{:.1f}".format(self.score) if self.score != NA else "-"
 
+    @property
+    def get_total_score_display(self):
+        # Scores are whole numbers, so their total is one too.
+        return (
+            "{:.0f}".format(self.total_score) if self.total_score is not None else "-"
+        )
+
+    @property
+    def score_display(self):
+        """The score to show in the UI, set with REVIEW_SCORE_SHOW_TOTAL."""
+        if settings.REVIEW_SCORE_SHOW_TOTAL:
+            return self.get_total_score_display
+        return self.get_score_display
+
     def get_absolute_url(self):
         return reverse(
             "apply:submissions:reviews:review",
             args=(
-                self.submission.pk,
+                self.submission_id,
                 self.id,
             ),
         )
@@ -244,6 +291,8 @@ class ReviewOpinion(models.Model):
 
     class Meta:
         unique_together = ("author", "review")
+        verbose_name = _("review opinion")
+        verbose_name_plural = _("review opinions")
 
     def __str__(self):
         return f"Review Opinion for {self.review}"
@@ -251,3 +300,11 @@ class ReviewOpinion(models.Model):
     @property
     def opinion_display(self):
         return self.get_opinion_display()
+
+    @property
+    def is_agree(self):
+        return self.opinion == AGREE
+
+    @property
+    def is_disagree(self):
+        return self.opinion == DISAGREE

@@ -1,7 +1,12 @@
 from django import forms
+from django.db.models import BLANK_CHOICE_DASH
 from django.test import TestCase
 
-from hypha.apply.categories.blocks import CategoryQuestionBlock
+from hypha.apply.categories.blocks import (
+    SEARCHABLE_SELECT_THRESHOLD,
+    CategoryQuestionBlock,
+)
+from hypha.apply.funds.widgets import ChoicesSelectMultipleWidget, ChoicesSelectWidget
 
 from .factories import CategoryFactory, OptionFactory
 
@@ -41,8 +46,9 @@ class TestCategoryQuestionBlock(TestCase):
         self.assertTrue(isinstance(field, forms.MultipleChoiceField))
 
     def test_multi_select_disabled(self):
-        field = self.get_field(multi=True)
-        self.assertTrue(isinstance(field, forms.ChoiceField))
+        field = self.get_field(multi=False)
+        self.assertNotIsInstance(field, forms.MultipleChoiceField)
+        self.assertIsInstance(field, forms.ChoiceField)
 
     def test_options_included_in_choices(self):
         # Don't assign to variable as the ordering wont match choices
@@ -53,6 +59,49 @@ class TestCategoryQuestionBlock(TestCase):
             [(option.id, option.value) for option in self.category.options.all()],
         )
 
+    def test_choices_follow_option_sort_order(self):
+        # Options are Orderable, so the order set in the admin decides the
+        # order the choices are offered in.
+        options = [
+            OptionFactory(category=self.category, value=value, sort_order=sort_order)
+            for value, sort_order in [("last", 2), ("first", 0), ("middle", 1)]
+        ]
+        field = self.get_field()
+        self.assertEqual(
+            [value for _, value in field.choices],
+            ["first", "middle", "last"],
+        )
+        self.assertEqual(
+            [pk for pk, _ in field.choices],
+            [options[1].id, options[2].id, options[0].id],
+        )
+
     def test_can_render_if_no_response(self):
         display = self.block.render({"category": self.category}, {"data": None})
         self.assertIn(self.block.no_response()[0], display)
+
+    def test_few_options_use_radio_and_checkbox_widgets(self):
+        OptionFactory.create_batch(
+            SEARCHABLE_SELECT_THRESHOLD - 1, category=self.category
+        )
+        self.assertIsInstance(self.get_field(multi=False).widget, forms.RadioSelect)
+        self.assertIsInstance(
+            self.get_field(multi=True).widget, forms.CheckboxSelectMultiple
+        )
+
+    def test_many_options_use_choices_js_select_widgets(self):
+        OptionFactory.create_batch(SEARCHABLE_SELECT_THRESHOLD, category=self.category)
+        self.assertIsInstance(self.get_field(multi=False).widget, ChoicesSelectWidget)
+        self.assertIsInstance(
+            self.get_field(multi=True).widget, ChoicesSelectMultipleWidget
+        )
+
+    def test_select_widget_offers_an_empty_choice(self):
+        # A <select> auto-selects its first option, so a single select must be
+        # able to start out unanswered.
+        OptionFactory.create_batch(SEARCHABLE_SELECT_THRESHOLD, category=self.category)
+
+        field = self.get_field(multi=False)
+
+        self.assertEqual(field.choices[0], BLANK_CHOICE_DASH[0])
+        self.assertNotIn(BLANK_CHOICE_DASH[0], self.get_field(multi=True).choices)

@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib import messages
+from django.utils.translation import gettext as _
 
 from hypha.apply.activity.options import MESSAGES
 
@@ -20,6 +21,10 @@ neat_related = {
     MESSAGES.DELETE_REVIEW_OPINION: "review_opinion",
     MESSAGES.EDIT_REVIEW: "review",
     MESSAGES.CREATED_PROJECT: "submission",
+    MESSAGES.CREATED_SOW: "sow",
+    MESSAGES.EDITED_SOW: "sow",
+    MESSAGES.EDITED_PF: "pfp",
+    MESSAGES.CREATED_PF: "pfp",
     MESSAGES.PROJECT_TRANSITION: "old_stage",
     MESSAGES.APPROVE_PAF: "paf_approvals",  # expect a list
     MESSAGES.UPDATE_PROJECT_LEAD: "old_lead",
@@ -32,17 +37,20 @@ neat_related = {
     MESSAGES.DELETE_INVOICE: "invoice",
     MESSAGES.UPDATE_INVOICE: "invoice",
     MESSAGES.SUBMIT_REPORT: "report",
+    MESSAGES.DELETE_REPORT: "report",
     MESSAGES.SKIPPED_REPORT: "report",
     MESSAGES.REPORT_FREQUENCY_CHANGED: "config",
     MESSAGES.REPORT_NOTIFY: "report",
     MESSAGES.REVIEW_REMINDER: "reminder",
     MESSAGES.BATCH_UPDATE_INVOICE_STATUS: "invoices",
     MESSAGES.REMOVE_TASK: "task",
+    MESSAGES.UPDATE_AUTHOR: "old_author",
+    MESSAGES.COMMENT_ASSIGNED: "comment",
 }
 
 
 class AdapterBase:
-    messages = {}
+    messages: dict = {}
     always_send = False
 
     def message(self, message_type, **kwargs):
@@ -192,11 +200,13 @@ class AdapterBase:
 
             if not settings.SEND_MESSAGES:
                 if recipient:
-                    debug_message = "{} [to: {}]: {}".format(
-                        self.adapter_type, recipient, message
+                    debug_message = _("{adapter} [to: {recipient}]: {message}").format(
+                        adapter=self.adapter_type, recipient=recipient, message=message
                     )
                 else:
-                    debug_message = "{}: {}".format(self.adapter_type, message)
+                    debug_message = _("{adapter}: {message}").format(
+                        adapter=self.adapter_type, message=message
+                    )
                 messages.add_message(request, messages.DEBUG, debug_message)
 
     def create_logs(self, message, recipient, *events):

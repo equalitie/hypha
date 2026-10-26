@@ -48,9 +48,15 @@ The corresponding locale dir is named: en, en_GB, en_US
 
 ----
 
-Number of seconds that password reset and account activation links are valid (default 259200, 3 days).
+Number of seconds that password reset links are valid (default 259200, 3 days).
 
     PASSWORD_RESET_TIMEOUT = env.int('PASSWORD_RESET_TIMEOUT', 259200)
+
+----
+
+Number of seconds that account activation links are valid (default 900, 15 minutes).
+
+    PASSWORD_ACTIVATION_TIMEOUT = env.int("PASSWORD_ACTIVATION_TIMEOUT", 900)
 
 ----
 
@@ -112,10 +118,9 @@ If applicants should be forced to preview their application before submitting
 
 ----
 
-Set the allowed file extension for all uploads fields.
+Set the allowed file extension for all uploads fields. The file inputs "accept" attribute and the "Accepted file types" help text are derived from this list.
 
     FILE_ALLOWED_EXTENSIONS = ['doc', 'docx', 'odp', 'ods', 'odt', 'pdf', 'ppt', 'pptx', 'rtf', 'txt', 'xls', 'xlsx']
-    FILE_ACCEPT_ATTR_VALUE = ', '.join(['.' + ext for ext in FILE_ALLOWED_EXTENSIONS])
 
 ----
 
@@ -201,19 +206,56 @@ Send out e-mail, slack messages etc. from Hypha. Set to true for production.
 
 ----
 
+Show the total (sum) of a review's scored answers instead of the average of them. Affects the "Reviews & assignees" block on the submission detail page, the review detail page and the all-reviews comparison table. The overall score in the "Reviews & assignees" block is then the sum of every review's total, rather than the average of their averages.
+
+    REVIEW_SCORE_SHOW_TOTAL = env.bool('REVIEW_SCORE_SHOW_TOTAL', False)
+
+----
+
+Change the labels of, or disable, review score choices. A JSON object keyed by score value (0-5 and 99 for "n/a - choose not to answer"). A string sets a new label, `null`, `false` or `""` disables the choice. If the n/a choice is disabled, score fields start out empty ("---------") instead of at n/a, so in required score fields reviewers have to pick a score. An optional score field left empty still counts as n/a. Existing reviews that used a disabled choice still show its label. Labels set here are not translated.
+
+Example: `REVIEW_RATE_CHOICES='{"0": null, "3": "3. Okay", "99": "n/a"}'`
+
+    REVIEW_RATE_CHOICES = env.json('REVIEW_RATE_CHOICES', {})
+
+----
+
 If automatic e-mails should be sent out to reviewers when submissions are ready for review.
 
     SEND_READY_FOR_REVIEW = env.bool('SEND_READY_FOR_REVIEW', True)
 
 ----
 
-Staff e-mail domain. Used for OAUTH2 whitelist default value and staff account creation.
+If automatic e-mails should be sent out to applicants when their submission changes status. Determination e-mails are not affected by this setting.
+
+    SEND_TRANSITION_EMAIL = env.bool('SEND_TRANSITION_EMAIL', True)
+
+----
+
+Staff e-mail domains. Used as the default value for the OAuth2 whitelists.
 
     STAFF_EMAIL_DOMAINS = env.list('STAFF_EMAIL_DOMAINS', [])
 
 ----
 
-Should staff identities be obscured from Applicants & Partners (ie. comments will be ORG_LONG_NAME rather than "John Doe").
+Google OAuth2 credentials. Create them at <https://console.developers.google.com/apis/credentials>. When a key is set a "Log in with your email" button is shown on the login page. The whitelist defaults to `STAFF_EMAIL_DOMAINS`.
+
+    SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = env.str('SOCIAL_AUTH_GOOGLE_OAUTH2_KEY', '')
+    SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = env.str('SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET', '')
+    SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = env.list('SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS', STAFF_EMAIL_DOMAINS)
+
+----
+
+Okta OAuth2 credentials. Create an OIDC "Web" application in the Okta admin console and grant it the `openid`, `profile` and `email` scopes. `SOCIAL_AUTH_OKTA_OAUTH2_API_URL` must point at the Okta authorization server, e.g. `https://your-org.okta.com/oauth2/default`. When a key is set a "Log in with Okta" button is shown on the login page. The whitelist defaults to `STAFF_EMAIL_DOMAINS`.
+
+    SOCIAL_AUTH_OKTA_OAUTH2_KEY = env.str('SOCIAL_AUTH_OKTA_OAUTH2_KEY', '')
+    SOCIAL_AUTH_OKTA_OAUTH2_SECRET = env.str('SOCIAL_AUTH_OKTA_OAUTH2_SECRET', '')
+    SOCIAL_AUTH_OKTA_OAUTH2_API_URL = env.str('SOCIAL_AUTH_OKTA_OAUTH2_API_URL', '')
+    SOCIAL_AUTH_OKTA_OAUTH2_WHITELISTED_DOMAINS = env.list('SOCIAL_AUTH_OKTA_OAUTH2_WHITELISTED_DOMAINS', STAFF_EMAIL_DOMAINS)
+
+----
+
+Should staff identities be obscured from Applicants (ie. comments will be ORG_LONG_NAME rather than "John Doe").
 
    HIDE_STAFF_IDENTITY = env.bool('HIDE_STAFF_IDENTITY', False)
 
@@ -222,6 +264,12 @@ Should staff identities be obscured from Applicants & Partners (ie. comments wil
 Should Applicant identities be obscured from External Reviewers
 
     HIDE_IDENTITY_FROM_REVIEWERS = env.bool('HIDE_IDENTITY_FROM_REVIEWERS', False)
+
+----
+
+Should applicants be able to see the detailed answers of the determinations on their own applications. The determination message is always shown to them.
+
+    DETERMINATION_DETAILS_ACCESS_APPLICANT = env.bool('DETERMINATION_DETAILS_ACCESS_APPLICANT', True)
 
 ----
 
@@ -277,19 +325,25 @@ On Heroku, set to true if deploying to Heroku.
 
 ----
 
-Secure cookies
-
-Set this to enable Djangos settings for secure cookies.
-
-    COOKIE_SECURE = env.bool('COOKIE_SECURE', False)
-
-----
-
 Machine translation settings for applications
 
 See [here](machine-translations.md) for more information on setting up machine translations
 
     APPLICATION_TRANSLATIONS_ENABLED = env.bool("APPLICATION_TRANSLATIONS_ENABLED", False)
+
+----
+
+Should submission anonymization be enabled. Allows for both manual anonymization and utilization of cleanup commands to anonymize by time thresholds.
+
+    SUBMISSION_ANONYMIZATION_ENABLED = env.bool("SUBMISSION_ANONYMIZATION_ENABLED", False)
+
+----
+
+Should form authors be able to mark application form fields as containing personally identifiable information (PII). Answers to marked fields are only shown to the applicant, their co-applicants and staff.
+
+See [here](pii-fields.md) for more information.
+
+    PII_FIELD_MARKING_ENABLED = env.bool("PII_FIELD_MARKING_ENABLED", False)
 
 ----
 

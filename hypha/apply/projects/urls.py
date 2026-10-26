@@ -1,9 +1,12 @@
 from django.urls import include, path
 from django.views.generic import RedirectView
 
-from hypha.apply.projects.views.project import ProjectSOWEditView
+from hypha.apply.projects.views.project import (
+    ProjectSOWEditView,
+    project_detail_redirect,
+)
 
-from .reports.views import ReportFrequencyUpdate
+from .reports.views import ReportDateAddView, ReportFrequencyUpdate
 from .views import (
     ApproveContractView,
     BatchUpdateInvoiceStatusView,
@@ -31,22 +34,28 @@ from .views import (
     SendForApprovalView,
     SkipPAFApprovalProcessView,
     SubmitContractDocumentsView,
+    TagInvoiceView,
     UpdateAssignApproversView,
     UpdateLeadView,
     UpdatePAFApproversView,
     UploadContractDocumentView,
     UploadContractView,
     UploadDocumentView,
-    get_invoices_status_counts,
-    get_project_status_counts,
+    invoice_export_download,
+    invoice_export_status,
     partial_contracting_documents,
     partial_get_invoice_detail_actions,
     partial_get_invoice_status,
     partial_get_invoice_status_table,
+    partial_get_invoice_tags,
+    partial_get_pf_status,
+    partial_get_report_status,
+    partial_get_sow_status,
     partial_project_information,
     partial_project_lead,
     partial_project_title,
     partial_supporting_documents,
+    update_project_contract_number,
     update_project_dates,
     update_project_title,
 )
@@ -57,10 +66,61 @@ urlpatterns = [
     path("", RedirectView.as_view(pattern_name="apply:projects:all"), name="overview"),
     path("all/", ProjectListView.as_view(), name="all"),
     path("reports/", include("hypha.apply.projects.reports.urls"), name="reports"),
-    path("statuses/", get_project_status_counts, name="projects_status_counts"),
     path("invoices/", InvoiceListView.as_view(), name="invoices"),
     path(
-        "invoices/statuses/", get_invoices_status_counts, name="invoices_status_counts"
+        "invoices/export-status/",
+        invoice_export_status,
+        name="invoice-export-status",
+    ),
+    path(
+        "invoices/export-download/",
+        invoice_export_download,
+        name="invoice-export-download",
+    ),
+    path(
+        "invoices/<int:pk>/",
+        include(
+            [
+                path("", InvoiceView.as_view(), name="invoice-detail"),
+                path("edit/", EditInvoiceView.as_view(), name="invoice-edit"),
+                path(
+                    "update/",
+                    ChangeInvoiceStatusView.as_view(),
+                    name="invoice-update",
+                ),
+                path(
+                    "delete/",
+                    DeleteInvoiceView.as_view(),
+                    name="invoice-delete",
+                ),
+                path(
+                    "partial/status/",
+                    partial_get_invoice_status,
+                    name="partial-invoice-status",
+                ),
+                path(
+                    "actions/",
+                    partial_get_invoice_detail_actions,
+                    name="partial-invoice-detail-actions",
+                ),
+                path("tags/", TagInvoiceView.as_view(), name="invoice-tags"),
+                path(
+                    "partial/tags/",
+                    partial_get_invoice_tags,
+                    name="partial-invoice-tags",
+                ),
+                path(
+                    "documents/invoice/",
+                    InvoicePrivateMedia.as_view(),
+                    name="invoice-document",
+                ),
+                path(
+                    "documents/supporting/<int:file_pk>/",
+                    InvoicePrivateMedia.as_view(),
+                    name="invoice-supporting-document",
+                ),
+            ]
+        ),
     ),
     path(
         "all/bulk_invoice_status_update/",
@@ -73,7 +133,7 @@ urlpatterns = [
             [
                 path(
                     "",
-                    RedirectView.as_view(pattern_name="funds:submissions:project"),
+                    project_detail_redirect,
                     name="detail",
                 ),
                 path("partial/lead/", partial_project_lead, name="project_lead"),
@@ -98,6 +158,11 @@ urlpatterns = [
                     "dates/update/",
                     update_project_dates,
                     name="project_dates_update",
+                ),
+                path(
+                    "contract-number/update/",
+                    update_project_contract_number,
+                    name="project_contract_number_update",
                 ),
                 path(
                     "edit/project-form", ProjectFormEditView.as_view(), name="edit_pf"
@@ -213,6 +278,11 @@ urlpatterns = [
                     ReportFrequencyUpdate.as_view(),
                     name="report_frequency_update",
                 ),
+                path(
+                    "reports/add/",
+                    ReportDateAddView.as_view(),
+                    name="report_add",
+                ),
                 path("invoice/", CreateInvoiceView.as_view(), name="invoice"),
                 path(
                     "partial/invoice-status/",
@@ -224,6 +294,42 @@ urlpatterns = [
                     partial_get_invoice_status_table,
                     {"rejected": True},
                     name="partial-rejected-invoices-status",
+                ),
+                path(
+                    "reports/<int:report_pk>/",
+                    include(
+                        [
+                            path(
+                                "partial/status/",
+                                partial_get_report_status,
+                                name="partial-report-status",
+                            )
+                        ]
+                    ),
+                ),
+                path(
+                    "project-sow/<int:sow_pk>/",
+                    include(
+                        [
+                            path(
+                                "partial/status/",
+                                partial_get_sow_status,
+                                name="partial-sow-status",
+                            )
+                        ]
+                    ),
+                ),
+                path(
+                    "project-form/<int:pfp_pk>/",
+                    include(
+                        [
+                            path(
+                                "partial/status/",
+                                partial_get_pf_status,
+                                name="partial-pf-status",
+                            )
+                        ]
+                    ),
                 ),
                 path(
                     "invoices/<int:invoice_pk>/",
@@ -252,6 +358,16 @@ urlpatterns = [
                                 "actions/",
                                 partial_get_invoice_detail_actions,
                                 name="partial-invoice-detail-actions",
+                            ),
+                            path(
+                                "tags/",
+                                TagInvoiceView.as_view(),
+                                name="invoice-tags",
+                            ),
+                            path(
+                                "partial/tags/",
+                                partial_get_invoice_tags,
+                                name="partial-invoice-tags",
                             ),
                             path(
                                 "documents/invoice/",

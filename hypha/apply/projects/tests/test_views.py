@@ -7,7 +7,13 @@ from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
-from hypha.apply.funds.tests.factories import LabSubmissionFactory
+from hypha.apply.activity.adapters.activity_feed import ActivityAdapter
+from hypha.apply.activity.options import MESSAGES
+from hypha.apply.activity.tests.factories import ActivityFactory
+from hypha.apply.funds.tests.factories import (
+    ApplicationSubmissionFactory,
+    LabSubmissionFactory,
+)
 from hypha.apply.projects.utils import get_invoice_status_display_value
 from hypha.apply.users.tests.factories import (
     ApplicantFactory,
@@ -23,7 +29,7 @@ from hypha.apply.utils.testing.tests import BaseViewTestCase
 from hypha.home.factories import ApplySiteFactory
 
 from ..forms import SetPendingForm
-from ..models.payment import CHANGES_REQUESTED_BY_STAFF, DECLINED, SUBMITTED
+from ..models.invoice import CHANGES_REQUESTED_BY_STAFF, DECLINED, SUBMITTED
 from ..models.project import (
     APPROVE,
     CONTRACTING,
@@ -42,6 +48,7 @@ from .factories import (
     PAFApprovalsFactory,
     PAFReviewerRoleFactory,
     ProjectFactory,
+    ProjectFormPointerFactory,
     SupportingDocumentFactory,
 )
 
@@ -66,7 +73,7 @@ class TestUpdateLeadView(BaseViewTestCase):
     user_factory = ApproverFactory
 
     def get_kwargs(self, instance):
-        return {"pk": instance.submission.id}
+        return {"pk": instance.id}
 
     def test_update_lead(self):
         project = ProjectFactory()
@@ -111,7 +118,7 @@ class TestSendForApprovalView(BaseViewTestCase):
         self.role = PAFReviewerRoleFactory(page=self.project_setting)
 
     def get_kwargs(self, instance):
-        return {"pk": instance.submission.id}
+        return {"pk": instance.id}
 
     def test_send_for_approval_fails_when_project_is_locked(self):
         project = ProjectFactory(is_locked=True)
@@ -157,7 +164,7 @@ class TestChangePAFStatusView(BaseViewTestCase):
         self.role = PAFReviewerRoleFactory(page=self.project_setting)
 
     def get_kwargs(self, instance):
-        return {"pk": instance.submission.id}
+        return {"pk": instance.id}
 
     def test_unassigned_applicant_cant_update_paf_status(self):
         user = ApplicantFactory()
@@ -261,13 +268,83 @@ class TestChangePAFStatusView(BaseViewTestCase):
         self.assertFalse(approval.approved)
         self.assertIn(approval, project.paf_approvals.filter(approved=False))
 
+    def test_activity_renders(self):
+        pfp = ProjectFormPointerFactory()
+        pf_added_msg = ActivityAdapter.messages[MESSAGES.CREATED_PF].lower()
+        ActivityFactory(
+            message=pf_added_msg,
+            source=pfp.project.submission,
+            related_object=pfp,
+            user=self.user,
+        )
+        response = self.client.get(
+            reverse(
+                "apply:projects:partial-pf-status",
+                kwargs={"pk": pfp.project.pk, "pfp_pk": pfp.pk},
+            ),
+            secure=True,
+            follow=True,
+        )
+
+        self.assertContains(response, pf_added_msg)
+
 
 class BaseProjectDetailTestCase(BaseViewTestCase):
     url_name = "funds:projects:{}"
     base_view_name = "detail"
 
     def get_kwargs(self, instance):
-        return {"pk": instance.submission.id}
+        return {"pk": instance.id}
+
+
+class TestSubmissionProjectsView(BaseViewTestCase):
+    user_factory = StaffFactory
+    url_name = "funds:submissions:{}"
+    base_view_name = "projects"
+
+    def get_kwargs(self, instance):
+        return {"pk": instance.id}
+
+    def test_two_projects_route_independently(self):
+        submission = ApplicationSubmissionFactory()
+        first = ProjectFactory(submission=submission, title="Hardware bucket")
+        second = ProjectFactory(submission=submission, title="Travel bucket")
+        # project ids must differ from the submission id for this to be meaningful
+        self.assertNotEqual(first.pk, second.pk)
+
+        for project in (first, second):
+            response = self.client.get(
+                reverse(
+                    "funds:submissions:project",
+                    kwargs={"pk": submission.id, "project_pk": project.pk},
+                ),
+                secure=True,
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, project.title)
+
+    def test_landing_lists_all_projects(self):
+        submission = ApplicationSubmissionFactory()
+        ProjectFactory(submission=submission, title="Hardware bucket")
+        ProjectFactory(submission=submission, title="Travel bucket")
+        response = self.client.get(
+            reverse("funds:submissions:projects", kwargs={"pk": submission.id}),
+            secure=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Hardware bucket")
+        self.assertContains(response, "Travel bucket")
+
+    def test_single_project_redirects_to_detail(self):
+        submission = ApplicationSubmissionFactory()
+        project = ProjectFactory(submission=submission)
+        response = self.client.get(
+            reverse("funds:submissions:projects", kwargs={"pk": submission.id}),
+            secure=True,
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(response, project.get_absolute_url())
 
 
 class TestApplicantProjectDetailView(BaseProjectDetailTestCase):
@@ -277,6 +354,11 @@ class TestApplicantProjectDetailView(BaseProjectDetailTestCase):
         project = ProjectFactory(user=self.user)
         response = self.get_page(project)
         self.assertEqual(response.status_code, 200)
+
+    def test_doesnt_have_access_to_other_project(self):
+        project = ProjectFactory()
+        response = self.get_page(project)
+        self.assertEqual(response.status_code, 403)
 
     def test_lab_project_renders(self):
         project = ProjectFactory(user=self.user, submission=LabSubmissionFactory())
@@ -310,6 +392,17 @@ class TestStaffProjectDetailView(BaseProjectDetailTestCase):
         response = self.get_page(project)
         self.assertEqual(response.status_code, 200)
 
+    def test_sibling_projects_listed_in_tab_dropdown(self):
+        submission = ApplicationSubmissionFactory()
+        project = ProjectFactory(submission=submission, title="Hardware bucket")
+        ProjectFactory(submission=submission, title="Travel bucket")
+
+        response = self.get_page(project)
+        self.assertEqual(response.status_code, 200)
+        # both sibling projects appear in the tab dropdown
+        self.assertContains(response, "Hardware bucket")
+        self.assertContains(response, "Travel bucket")
+
 
 class TestFinanceProjectDetailView(BaseProjectDetailTestCase):
     user_factory = FinanceFactory
@@ -333,20 +426,6 @@ class TestFinanceProjectDetailView(BaseProjectDetailTestCase):
         project = ProjectFactory(
             submission=LabSubmissionFactory(), status=INTERNAL_APPROVAL
         )
-        response = self.get_page(project)
-        self.assertEqual(response.status_code, 200)
-
-
-class TestUserProjectDetailView(BaseProjectDetailTestCase):
-    user_factory = ApplicantFactory
-
-    def test_doesnt_have_access(self):
-        project = ProjectFactory()
-        response = self.get_page(project)
-        self.assertEqual(response.status_code, 403)
-
-    def test_owner_has_access(self):
-        project = ProjectFactory(user=self.user)
         response = self.get_page(project)
         self.assertEqual(response.status_code, 200)
 
@@ -375,7 +454,7 @@ class TestRemoveDocumentView(BaseViewTestCase):
     user_factory = StaffFactory
 
     def get_kwargs(self, instance):
-        return {"pk": instance.submission.id}
+        return {"pk": instance.id}
 
     def test_remove_document(self):
         project = ProjectFactory()
@@ -410,7 +489,7 @@ class TestApplicantUploadContractView(BaseViewTestCase):
     user_factory = ApplicantFactory
 
     def get_kwargs(self, instance):
-        return {"pk": instance.submission.id}
+        return {"pk": instance.id}
 
     def test_owner_upload_contract(self):
         project = ProjectFactory(status=CONTRACTING, user=self.user)
@@ -464,7 +543,7 @@ class TestUploadDocumentView(BaseViewTestCase):
         self.category = DocumentCategoryFactory()
 
     def get_kwargs(self, instance):
-        return {"pk": instance.submission.id, "category_pk": self.category.id}
+        return {"pk": instance.id, "category_pk": self.category.id}
 
     def test_upload_document(self):
         project = ProjectFactory()
@@ -636,7 +715,7 @@ class TestApproveContractView(BaseViewTestCase):
     user_factory = StaffFactory
 
     def get_kwargs(self, instance):
-        return {"pk": instance.submission.id}
+        return {"pk": instance.id}
 
     def test_approve_unapproved_contract(self):
         project = ProjectFactory(status=CONTRACTING)
@@ -726,7 +805,7 @@ class BasePacketFileViewTestCase(BaseViewTestCase):
 
     def get_kwargs(self, instance):
         return {
-            "pk": instance.project.submission.pk,
+            "pk": instance.project.pk,
             "file_pk": instance.id,
         }
 
@@ -777,14 +856,12 @@ class TestProjectDetailApprovalView(TestCase):
         request = factory.get(f"/project/{project.pk}")
         request.user = StaffFactory()
 
-        response = ProjectDetailApprovalView.as_view()(
-            request, pk=project.submission.id
-        )
+        response = ProjectDetailApprovalView.as_view()(request, pk=project.pk)
         self.assertEqual(response.status_code, 200)
 
         request.user = ApplicantFactory()
         with self.assertRaises(PermissionDenied):
-            ProjectDetailApprovalView.as_view()(request, pk=project.submission.id)
+            ProjectDetailApprovalView.as_view()(request, pk=project.pk)
 
 
 class TestStaffDetailInvoiceStatus(BaseViewTestCase):
@@ -793,16 +870,11 @@ class TestStaffDetailInvoiceStatus(BaseViewTestCase):
     user_factory = StaffFactory
 
     def get_kwargs(self, instance):
-        return {
-            "pk": instance.project.pk,
-            "invoice_pk": instance.pk,
-        }
+        return {"pk": instance.pk}
 
     def test_can(self):
         invoice = InvoiceFactory()
-        response = self.get_page(
-            invoice, url_kwargs={"pk": invoice.project.submission.pk}
-        )
+        response = self.get_page(invoice)
         self.assertEqual(response.status_code, 200)
 
     def test_wrong_project_cant(self):
@@ -810,6 +882,27 @@ class TestStaffDetailInvoiceStatus(BaseViewTestCase):
         invoice = InvoiceFactory()
         response = self.get_page(invoice, url_kwargs={"pk": other_project.pk})
         self.assertEqual(response.status_code, 404)
+
+    def test_activity_renders(self):
+        invoice = InvoiceFactory()
+        vendor = ApplicantFactory()
+        invoice_added_msg = ActivityAdapter.messages[MESSAGES.CREATE_INVOICE].lower()
+        ActivityFactory(
+            message=invoice_added_msg,
+            source=invoice.project.submission,
+            related_object=invoice,
+            user=vendor,
+        )
+        response = self.client.get(
+            reverse(
+                "apply:projects:partial-invoice-status",
+                kwargs={"pk": invoice.project.pk, "invoice_pk": invoice.pk},
+            ),
+            secure=True,
+            follow=True,
+        )
+
+        self.assertContains(response, invoice_added_msg)
 
 
 class TestFinanceDetailInvoiceStatus(BaseViewTestCase):
@@ -818,23 +911,12 @@ class TestFinanceDetailInvoiceStatus(BaseViewTestCase):
     user_factory = FinanceFactory
 
     def get_kwargs(self, instance):
-        return {
-            "pk": instance.project.submission.pk,
-            "invoice_pk": instance.pk,
-        }
+        return {"pk": instance.pk}
 
     def test_can(self):
         invoice = InvoiceFactory()
-        response = self.get_page(
-            invoice, url_kwargs={"pk": invoice.project.submission.pk}
-        )
+        response = self.get_page(invoice)
         self.assertEqual(response.status_code, 200)
-
-    def test_wrong_project_cant(self):
-        other_project = ProjectFactory()
-        invoice = InvoiceFactory()
-        response = self.get_page(invoice, url_kwargs={"pk": other_project.pk})
-        self.assertEqual(response.status_code, 404)
 
 
 class TestApplicantDetailInvoiceStatus(BaseViewTestCase):
@@ -843,10 +925,7 @@ class TestApplicantDetailInvoiceStatus(BaseViewTestCase):
     user_factory = ApplicantFactory
 
     def get_kwargs(self, instance):
-        return {
-            "pk": instance.project.submission.pk,
-            "invoice_pk": instance.pk,
-        }
+        return {"pk": instance.pk}
 
     def test_can(self):
         invoice = InvoiceFactory(project__user=self.user)
@@ -858,6 +937,26 @@ class TestApplicantDetailInvoiceStatus(BaseViewTestCase):
         response = self.get_page(invoice)
         self.assertEqual(response.status_code, 403)
 
+    def test_activity_renders(self):
+        invoice = InvoiceFactory(project__user=self.user)
+        invoice_added_msg = ActivityAdapter.messages[MESSAGES.CREATE_INVOICE].lower()
+        ActivityFactory(
+            message=invoice_added_msg,
+            source=invoice.project.submission,
+            related_object=invoice,
+            user=self.user,
+        )
+        response = self.client.get(
+            reverse(
+                "apply:projects:partial-invoice-status",
+                kwargs={"pk": invoice.project.pk, "invoice_pk": invoice.pk},
+            ),
+            secure=True,
+            follow=True,
+        )
+
+        self.assertContains(response, invoice_added_msg)
+
 
 class TestApplicantEditInvoiceView(BaseViewTestCase):
     base_view_name = "invoice-edit"
@@ -865,10 +964,7 @@ class TestApplicantEditInvoiceView(BaseViewTestCase):
     user_factory = ApplicantFactory
 
     def get_kwargs(self, instance):
-        return {
-            "pk": instance.project.submission.pk,
-            "invoice_pk": instance.pk,
-        }
+        return {"pk": instance.pk}
 
     def test_editing_invoice_remove_supporting_document(self):
         invoice = InvoiceFactory(project__user=self.user)
@@ -933,10 +1029,7 @@ class TestStaffEditInvoiceView(BaseViewTestCase):
     user_factory = StaffFactory
 
     def get_kwargs(self, instance):
-        return {
-            "pk": instance.project.submission.pk,
-            "invoice_pk": instance.pk,
-        }
+        return {"pk": instance.pk}
 
     def test_editing_invoice_remove_supporting_document(self):
         invoice = InvoiceFactory()
@@ -1003,10 +1096,7 @@ class TestStaffChangeInvoiceStatus(BaseViewTestCase):
     user_factory = StaffFactory
 
     def get_kwargs(self, instance):
-        return {
-            "pk": instance.project.submission.pk,
-            "invoice_pk": instance.pk,
-        }
+        return {"pk": instance.pk}
 
     def test_can(self):
         invoice = InvoiceFactory()
@@ -1091,7 +1181,7 @@ class TestStaffChangeInvoiceStatus(BaseViewTestCase):
         response = self.client.get(
             reverse(
                 "apply:projects:partial-invoice-status",
-                kwargs={"pk": project.submission.pk, "invoice_pk": invoice.pk},
+                kwargs={"pk": project.pk, "invoice_pk": invoice.pk},
             ),
             secure=True,
             follow=True,
@@ -1129,7 +1219,7 @@ class TestApplicantChangeInvoiceStatus(BaseViewTestCase):
     user_factory = ApplicantFactory
 
     def get_kwargs(self, instance):
-        return {"pk": instance.project.submission.pk, "invoice_pk": instance.pk}
+        return {"pk": instance.pk}
 
     def test_can(self):
         invoice = InvoiceFactory(project__user=self.user)
@@ -1164,20 +1254,12 @@ class TestStaffInvoiceDocumentPrivateMedia(BaseViewTestCase):
     user_factory = StaffFactory
 
     def get_kwargs(self, instance):
-        return {"pk": instance.project.submission.pk, "invoice_pk": instance.pk}
+        return {"pk": instance.pk}
 
     def test_can_access(self):
         invoice = InvoiceFactory()
-        response = self.get_page(
-            invoice, url_kwargs={"pk": invoice.project.submission.pk}
-        )
+        response = self.get_page(invoice)
         self.assertContains(response, invoice.document.read())
-
-    def test_cant_access_if_project_wrong(self):
-        other_project = ProjectFactory()
-        invoice = InvoiceFactory()
-        response = self.get_page(invoice, url_kwargs={"pk": other_project.pk})
-        self.assertEqual(response.status_code, 404)
 
 
 class TestApplicantInvoiceDocumentPrivateMedia(BaseViewTestCase):
@@ -1186,7 +1268,7 @@ class TestApplicantInvoiceDocumentPrivateMedia(BaseViewTestCase):
     user_factory = ApplicantFactory
 
     def get_kwargs(self, instance):
-        return {"pk": instance.project.submission.pk, "invoice_pk": instance.pk}
+        return {"pk": instance.pk}
 
     def test_can_access_own(self):
         invoice = InvoiceFactory(project__user=self.user)
@@ -1205,11 +1287,7 @@ class TestStaffInvoiceSupportingDocumentPrivateMedia(BaseViewTestCase):
     user_factory = StaffFactory
 
     def get_kwargs(self, instance):
-        return {
-            "pk": instance.invoice.project.submission.pk,
-            "invoice_pk": instance.invoice.pk,
-            "file_pk": instance.pk,
-        }
+        return {"pk": instance.invoice.pk, "file_pk": instance.pk}
 
     def test_can_access(self):
         supporting_document = SupportingDocumentFactory()
@@ -1223,11 +1301,7 @@ class TestApplicantSupportingDocumentPrivateMedia(BaseViewTestCase):
     user_factory = ApplicantFactory
 
     def get_kwargs(self, instance):
-        return {
-            "pk": instance.invoice.project.submission.pk,
-            "invoice_pk": instance.invoice.pk,
-            "file_pk": instance.pk,
-        }
+        return {"pk": instance.invoice.pk, "file_pk": instance.pk}
 
     def test_can_access_own(self):
         supporting_document = SupportingDocumentFactory(
@@ -1273,7 +1347,7 @@ class TestStaffProjectDetailDownloadView(BaseViewTestCase):
 
     def get_kwargs(self, instance):
         return {
-            "pk": instance.submission.pk,
+            "pk": instance.pk,
         }
 
     def test_can_access_pdf(self):

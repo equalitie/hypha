@@ -2,6 +2,7 @@ import json
 
 from django import forms
 from django.conf import settings
+from django.db.models import BLANK_CHOICE_DASH
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from wagtail.blocks import RichTextBlock
@@ -69,7 +70,8 @@ class ScoreFieldWithoutTextBlock(OptionalFormFieldBlock):
     This block modifies RATE_CHOICES to have empty string('') in place of NA
     for text value `n/a - choose not to answer` as it helps to render this value
     as default to the forms and also when this field is
-    required it automatically handles validation on empty string.
+    required it automatically handles validation on empty string. If NA is
+    disabled an empty choice is added first instead.
     """
 
     name = "score without text"
@@ -85,9 +87,11 @@ class ScoreFieldWithoutTextBlock(OptionalFormFieldBlock):
         return kwargs
 
     def render(self, value, context=None):
-        data = int(context["data"])
-        choices = dict(self.get_choices(RATE_CHOICES))
-        context["data"] = choices[data]
+        data = context.get("data", None)
+        if data:
+            context["data"] = RATE_CHOICES_DICT.get(int(data), RATE_CHOICE_NA)
+        else:
+            context["data"] = ""
 
         return super().render(value, context)
 
@@ -95,9 +99,11 @@ class ScoreFieldWithoutTextBlock(OptionalFormFieldBlock):
         """
         Replace 'NA' option with an empty string choice.
         """
-        rate_choices = list(choices)
-        rate_choices.pop(-1)
-        rate_choices.append(("", "n/a - choose not to answer"))
+        rate_choices = [choice for choice in choices if choice[0] != NA]
+        if len(rate_choices) < len(choices):
+            rate_choices.append(("", RATE_CHOICE_NA))
+        else:
+            rate_choices = BLANK_CHOICE_DASH + rate_choices
         return tuple(rate_choices)
 
 
@@ -107,7 +113,7 @@ class ReviewMustIncludeFieldBlock(MustIncludeFieldBlock):
 
 class RecommendationBlock(ReviewMustIncludeFieldBlock):
     name = "recommendation"
-    description = "Overall recommendation"
+    description = _("Overall recommendation")
     field_class = forms.ChoiceField
 
     class Meta:
@@ -128,7 +134,7 @@ class RecommendationBlock(ReviewMustIncludeFieldBlock):
 
 class RecommendationCommentsBlock(ReviewMustIncludeFieldBlock):
     name = "comments"
-    description = "Recommendation comments"
+    description = _("Recommendation comments")
     widget = RICH_TEXT_WIDGET_SHORT
 
     class Meta:
@@ -143,7 +149,7 @@ class RecommendationCommentsBlock(ReviewMustIncludeFieldBlock):
 
 class VisibilityBlock(ReviewMustIncludeFieldBlock):
     name = "visibility"
-    description = "Visibility"
+    description = _("Visibility")
     field_class = forms.ChoiceField
     widget = forms.RadioSelect()
 
@@ -151,7 +157,7 @@ class VisibilityBlock(ReviewMustIncludeFieldBlock):
         icon = "radio-empty"
 
     def get_field_kwargs(self, struct_value):
-        kwargs = super(VisibilityBlock, self).get_field_kwargs(struct_value)
+        kwargs = super().get_field_kwargs(struct_value)
         kwargs["choices"] = VISIBILITY.items()
         kwargs["initial"] = settings.REVIEW_VISIBILITY_DEFAULT
         kwargs["help_text"] = mark_safe(

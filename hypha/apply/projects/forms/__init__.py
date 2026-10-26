@@ -1,8 +1,9 @@
-from .payment import (
+from .invoice import (
     BatchUpdateInvoiceStatusForm,
     ChangeInvoiceStatusForm,
     CreateInvoiceForm,
     EditInvoiceForm,
+    InvoiceTagsForm,
     SelectDocumentForm,
 )
 from .project import (
@@ -18,6 +19,7 @@ from .project import (
     SkipPAFApprovalProcessForm,
     StaffUploadContractForm,
     SubmitContractDocumentsForm,
+    UpdateProjectContractNumberForm,
     UpdateProjectDatesForm,
     UpdateProjectLeadForm,
     UpdateProjectTitleForm,
@@ -45,9 +47,11 @@ __all__ = [
     "UploadContractDocumentForm",
     "StaffUploadContractForm",
     "UploadDocumentForm",
+    "UpdateProjectContractNumberForm",
     "UpdateProjectDatesForm",
     "UpdateProjectLeadForm",
     "CreateInvoiceForm",
     "ChangeInvoiceStatusForm",
     "EditInvoiceForm",
+    "InvoiceTagsForm",
 ]

@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 
 from ..constants import DRAFT_STATE, INITIAL_STATE, UserPermissions
 from ..models.stage import RequestExt
@@ -33,7 +33,7 @@ SingleStageExternalDefinition = [
             "transitions": {
                 "ext_more_info": _("Request More Information"),
                 "ext_internal_review": _("Open Review"),
-                "ext_determination": _("Ready For Determination"),
+                "ext_determination": _("Ready for Determination"),
                 "ext_rejected": _("Dismiss"),
             },
             "display": _("Need screening"),
@@ -67,8 +67,8 @@ SingleStageExternalDefinition = [
                 INITIAL_STATE: _("Need screening (revert)"),
             },
             "display": _("Internal Review"),
-            "public": _("{org_short_name} Review").format(
-                org_short_name=settings.ORG_SHORT_NAME
+            "public": _("{ORG_SHORT_NAME} Review").format(
+                ORG_SHORT_NAME=settings.ORG_SHORT_NAME
             ),
             "stage": RequestExt,
             "permissions": default_permissions,
@@ -79,11 +79,11 @@ SingleStageExternalDefinition = [
             "transitions": {
                 "ext_post_review_more_info": _("Request More Information"),
                 "ext_external_review": _("Open External Review"),
-                "ext_determination": _("Ready For Determination"),
+                "ext_determination": _("Ready for Determination"),
                 "ext_internal_review": _("Open Internal Review (revert)"),
                 "ext_rejected": _("Dismiss"),
             },
-            "display": _("Ready For Discussion"),
+            "display": _("Ready for Discussion"),
             "stage": RequestExt,
             "permissions": hidden_from_applicant_permissions,
         },
@@ -110,7 +110,7 @@ SingleStageExternalDefinition = [
         "ext_external_review": {
             "transitions": {
                 "ext_post_external_review_discussion": _("Close Review"),
-                "ext_post_review_discussion": _("Ready For Discussion (revert)"),
+                "ext_post_review_discussion": _("Ready for Discussion (revert)"),
             },
             "display": _("External Review"),
             "stage": RequestExt,
@@ -121,13 +121,13 @@ SingleStageExternalDefinition = [
         "ext_post_external_review_discussion": {
             "transitions": {
                 "ext_post_external_review_more_info": _("Request More Information"),
-                "ext_determination": _("Ready For Determination"),
+                "ext_determination": _("Ready for Determination"),
                 "ext_external_review": _("Open External Review (revert)"),
                 "ext_almost": _("Accept but additional info required"),
                 "ext_accepted": _("Accept"),
                 "ext_rejected": _("Dismiss"),
             },
-            "display": _("Ready For Discussion"),
+            "display": _("Ready for Discussion"),
             "stage": RequestExt,
             "permissions": hidden_from_applicant_permissions,
         },
@@ -154,7 +154,7 @@ SingleStageExternalDefinition = [
         "ext_determination": {
             "transitions": {
                 "ext_post_external_review_discussion": _(
-                    "Ready For Discussion (revert)"
+                    "Ready for Discussion (revert)"
                 ),
                 "ext_almost": _("Accept but additional info required"),
                 "ext_accepted": _("Accept"),
@@ -176,7 +176,7 @@ SingleStageExternalDefinition = [
             "transitions": {
                 "ext_accepted": _("Accept"),
                 "ext_post_external_review_discussion": _(
-                    "Ready For Discussion (revert)"
+                    "Ready for Discussion (revert)"
                 ),
             },
             "display": _("Accepted but additional info required"),

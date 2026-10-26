@@ -20,7 +20,7 @@ class DeterminationMustIncludeFieldBlock(MustIncludeFieldBlock):
 
 class DeterminationBlock(DeterminationMustIncludeFieldBlock):
     name = "determination"
-    description = "Overall determination"
+    description = _("Overall determination")
     field_class = forms.TypedChoiceField
 
     class Meta:
@@ -40,7 +40,7 @@ class DeterminationBlock(DeterminationMustIncludeFieldBlock):
 
 class DeterminationMessageBlock(DeterminationMustIncludeFieldBlock):
     name = "message"
-    description = "Determination message"
+    description = _("Determination message")
     widget = RICH_TEXT_WIDGET
 
     class Meta:
@@ -55,7 +55,7 @@ class DeterminationMessageBlock(DeterminationMustIncludeFieldBlock):
 
 class SendNoticeBlock(DeterminationMustIncludeFieldBlock):
     name = "send_notice"
-    description = "Send Notice"
+    description = _("Send Notice")
 
     default_value = BooleanBlock(default=True, required=False)
 
@@ -64,6 +64,14 @@ class SendNoticeBlock(DeterminationMustIncludeFieldBlock):
     class Meta:
         label = _("Send Notice")
         icon = "tick-inverse"
+
+    def get_field_kwargs(self, struct_value):
+        kwargs = super().get_field_kwargs(struct_value)
+        # A required BooleanField has to be checked to validate, which would
+        # make it impossible to submit a determination without notifying the
+        # applicant - the only thing this field is for.
+        kwargs["required"] = False
+        return kwargs
 
     def get_searchable_content(self, value, data):
         return None

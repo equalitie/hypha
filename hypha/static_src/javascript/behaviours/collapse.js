@@ -20,7 +20,7 @@
     // Read the max height from the data-js-collapse attribute
     // If the attribute is not set, use the default value
     const content_max_height =
-      parseInt(el.getAttribute("data-js-collapse-height")) || 320;
+      parseInt(el.getAttribute("data-js-collapse-height"), 10) || 320;
 
     // If the content height is less than or equal to the max height, do nothing
     if (content_height <= content_max_height) {
@@ -29,13 +29,13 @@
 
     // Create a "Show" button
     const btn_show = document.createElement("button");
-    btn_show.classList.add("button", "button--primary", "button--narrow");
-    btn_show.textContent = "Show";
+    btn_show.classList.add("btn", "btn-secondary", "btn-sm");
+    btn_show.textContent = "Show all";
 
     // Create a wrapper for the button with gradient background
     const btn_wrapper = document.createElement("div");
     btn_wrapper.classList.add(
-      ..."w-full absolute bottom-0 left-0 text-center pt-8 pb-4 bg-linear-to-t from-white".split(
+      ..."w-full absolute bottom-0 left-0 text-center pt-8 pb-4 bg-linear-to-t from-base-100".split(
         " "
       )
     );

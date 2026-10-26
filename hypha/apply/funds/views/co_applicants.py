@@ -1,4 +1,3 @@
-import datetime
 import json
 
 from django.conf import settings
@@ -24,6 +23,7 @@ from hypha.apply.users.models import User
 from hypha.apply.users.roles import APPLICANT_GROUP_NAME
 from hypha.apply.users.services import PasswordlessAuthService
 from hypha.apply.users.tokens import CoApplicantInviteTokenGenerator
+from hypha.apply.users.utils import get_user_by_email
 
 from ..forms import EditCoApplicantForm, InviteCoApplicantForm
 from ..models import ApplicationSubmission, CoApplicant, CoApplicantInvite
@@ -44,7 +44,7 @@ class CoApplicantInviteView(View):
         if not permission:
             messages.warning(self.request, reason)
             return HttpResponseRedirect(self.submission.get_absolute_url())
-        return super(CoApplicantInviteView, self).dispatch(request, *args, **kwargs)
+        return super().dispatch(request, *args, **kwargs)
 
     def get(self, *args, **kwargs):
         invite_form = InviteCoApplicantForm(
@@ -71,6 +71,9 @@ class CoApplicantInviteView(View):
             form.instance.submission = self.submission
             form.instance.invited_user_email = form.cleaned_data["invited_user_email"]
             form.instance.role = form.cleaned_data["role"]
+            form.instance.project_permission = form.cleaned_data.get(
+                "project_permission", None
+            )
             form.instance.invited_by = self.request.user
             form.instance.invited_at = timezone.now()
             co_applicant_invite = form.save()
@@ -88,7 +91,7 @@ class CoApplicantInviteView(View):
                     "HX-Trigger": json.dumps(
                         {
                             "coApplicantUpdated": None,
-                            "showMessage": _("Co-applicant created"),
+                            "showMessage": _("Co-applicant invited"),
                         }
                     ),
                 },
@@ -103,28 +106,30 @@ class CoApplicantInviteView(View):
 
 class CoApplicantInviteAcceptView(View):
     def dispatch(self, request, *args, **kwargs):
-        token = kwargs.get("token")
         try:
             self.invite = CoApplicantInvite.objects.get(
                 pk=force_str(urlsafe_base64_decode(kwargs.get("uidb64")))
             )
         except (TypeError, ValueError, OverflowError, CoApplicantInvite.DoesNotExist):
-            return render(
-                self.request,
-                "funds/coapplicant_invite_landing_page.html",
-                context={"is_valid": False},
-                status=200,
-            )
-        if (
-            self.invite
-            and self.check_token(self.invite, token)
-            and self.invite.status == CoApplicantInviteStatus.PENDING
-        ):
-            return super().dispatch(request, *args, **kwargs)
+            return self.render_invalid()
+
+        if not self.check_token(self.invite, kwargs.get("token")):
+            return self.render_invalid()
+
+        if self.invite.status != CoApplicantInviteStatus.PENDING:
+            return self.render_invalid()
+
+        self.invited_user = get_user_by_email(self.invite.invited_user_email)
+        if self.invited_user and not self.invited_user.is_active:
+            return self.render_invalid(account_inactive=True)
+
+        return super().dispatch(request, *args, **kwargs)
+
+    def render_invalid(self, **context):
         return render(
             self.request,
             "funds/coapplicant_invite_landing_page.html",
-            context={"is_valid": False},
+            context={"is_valid": False, **context},
             status=200,
         )
 
@@ -133,7 +138,7 @@ class CoApplicantInviteAcceptView(View):
         return token_generator.check_token(invite, token)
 
     def get(self, *args, **kwargs):
-        user = User.objects.filter(email=self.invite.invited_user_email).first()
+        user = self.invited_user
         if user and (user.is_apply_staff or user.is_apply_staff_admin):
             return HttpResponseRedirect(reverse_lazy("dashboard:dashboard"))
         return render(
@@ -150,15 +155,12 @@ class CoApplicantInviteAcceptView(View):
     def post(self, args, **kwargs):
         action = self.request.POST.get("action")
         if action == "accept":
-            self.invite.status = CoApplicantInviteStatus.ACCEPTED
-            self.invite.responded_on = datetime.datetime.now()
-            self.invite.save(update_fields=["status", "responded_on"])
+            self.invite.respond(CoApplicantInviteStatus.ACCEPTED)
 
             # handle auto login/signup
-            user, created = User.objects.get_or_create(
-                email=self.invite.invited_user_email, is_active=True
-            )
-            if created:
+            user = self.invited_user
+            if user is None:
+                user = User.objects.create(email=self.invite.invited_user_email)
                 applicant_group = Group.objects.get(name=APPLICANT_GROUP_NAME)
                 user.groups.add(applicant_group)
                 user.set_unusable_password()
@@ -170,6 +172,7 @@ class CoApplicantInviteAcceptView(View):
                 submission=self.invite.submission,
                 user=user,
                 role=self.invite.role,
+                project_permission=self.invite.project_permission,
             )
 
             if not self.request.user.is_authenticated or self.request.user != user:
@@ -190,16 +193,14 @@ class CoApplicantInviteAcceptView(View):
 
                 login(self.request, user)
             return HttpResponseClientRedirect(self.get_success_url())
-        self.invite.status = CoApplicantInviteStatus.REJECTED
-        self.invite.responded_on = datetime.datetime.now()
-        self.invite.save(update_fields=["status", "responded_on"])
+        self.invite.respond(CoApplicantInviteStatus.REJECTED)
         if self.request.user.is_authenticated:
             return HttpResponseClientRedirect(reverse_lazy("dashboard:dashboard"))
         return HttpResponseClientRedirect("/")
 
     def get_success_url(self):
         return reverse_lazy(
-            "apply:submissions:detail", args=(self.invite.submission.pk,)
+            "apply:submissions:detail", args=(self.invite.submission_id,)
         )
 
 
@@ -212,7 +213,7 @@ class EditCoApplicantView(View):
             object=self.invite,
             raise_exception=True,
         )
-        return super(EditCoApplicantView, self).dispatch(request, *args, **kwargs)
+        return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, *args, **kwargs):
         if self.invite.status == CoApplicantInviteStatus.ACCEPTED:
@@ -326,7 +327,7 @@ def list_coapplicant_invites(request, pk):
 
     # check if pending invites have expired, update status
     for invite in co_applicant_invites.filter(status=CoApplicantInviteStatus.PENDING):
-        if (
+        if invite.invited_at and (
             int((timezone.now() - invite.invited_at).total_seconds())
             > CoApplicantInviteTokenGenerator().TIMEOUT
         ):

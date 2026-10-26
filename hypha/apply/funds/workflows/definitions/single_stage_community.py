@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 
 from ..constants import DRAFT_STATE, INITIAL_STATE, UserPermissions
 from ..models.stage import RequestCom
@@ -36,7 +36,7 @@ SingleStageCommunityDefinition = [
                 "com_open_call": "Open Call (public)",
                 "com_internal_review": _("Open Review"),
                 "com_community_review": _("Open Community Review"),
-                "com_determination": _("Ready For Determination"),
+                "com_determination": _("Ready for Determination"),
                 "com_rejected": _("Dismiss"),
             },
             "display": _("Need screening"),
@@ -81,8 +81,8 @@ SingleStageCommunityDefinition = [
                 "com_rejected": _("Dismiss"),
             },
             "display": _("Internal Review"),
-            "public": _("{org_short_name} Review").format(
-                org_short_name=settings.ORG_SHORT_NAME
+            "public": _("{ORG_SHORT_NAME} Review").format(
+                ORG_SHORT_NAME=settings.ORG_SHORT_NAME
             ),
             "stage": RequestCom,
             "permissions": default_permissions,
@@ -94,8 +94,8 @@ SingleStageCommunityDefinition = [
                 "com_rejected": _("Dismiss"),
             },
             "display": _("Community Review"),
-            "public": _("{org_short_name} Review").format(
-                org_short_name=settings.ORG_SHORT_NAME
+            "public": _("{ORG_SHORT_NAME} Review").format(
+                ORG_SHORT_NAME=settings.ORG_SHORT_NAME
             ),
             "stage": RequestCom,
             "permissions": community_review_permissions,
@@ -106,11 +106,11 @@ SingleStageCommunityDefinition = [
             "transitions": {
                 "com_post_review_more_info": _("Request More Information"),
                 "com_external_review": _("Open External Review"),
-                "com_determination": _("Ready For Determination"),
+                "com_determination": _("Ready for Determination"),
                 "com_internal_review": _("Open Internal Review (revert)"),
                 "com_rejected": _("Dismiss"),
             },
-            "display": _("Ready For Discussion"),
+            "display": _("Ready for Discussion"),
             "stage": RequestCom,
             "permissions": hidden_from_applicant_permissions,
         },
@@ -137,7 +137,7 @@ SingleStageCommunityDefinition = [
         "com_external_review": {
             "transitions": {
                 "com_post_external_review_discussion": _("Close Review"),
-                "com_post_review_discussion": _("Ready For Discussion (revert)"),
+                "com_post_review_discussion": _("Ready for Discussion (revert)"),
             },
             "display": _("External Review"),
             "stage": RequestCom,
@@ -148,13 +148,13 @@ SingleStageCommunityDefinition = [
         "com_post_external_review_discussion": {
             "transitions": {
                 "com_post_external_review_more_info": _("Request More Information"),
-                "com_determination": _("Ready For Determination"),
+                "com_determination": _("Ready for Determination"),
                 "com_external_review": _("Open External Review (revert)"),
                 "com_almost": _("Accept but additional info required"),
                 "com_accepted": _("Accept"),
                 "com_rejected": _("Dismiss"),
             },
-            "display": _("Ready For Discussion"),
+            "display": _("Ready for Discussion"),
             "stage": RequestCom,
             "permissions": hidden_from_applicant_permissions,
         },
@@ -181,7 +181,7 @@ SingleStageCommunityDefinition = [
         "com_determination": {
             "transitions": {
                 "com_post_external_review_discussion": _(
-                    "Ready For Discussion (revert)"
+                    "Ready for Discussion (revert)"
                 ),
                 "com_almost": _("Accept but additional info required"),
                 "com_accepted": _("Accept"),
@@ -203,7 +203,7 @@ SingleStageCommunityDefinition = [
             "transitions": {
                 "com_accepted": _("Accept"),
                 "com_post_external_review_discussion": _(
-                    "Ready For Discussion (revert)"
+                    "Ready for Discussion (revert)"
                 ),
             },
             "display": _("Accepted but additional info required"),

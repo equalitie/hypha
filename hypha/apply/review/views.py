@@ -19,14 +19,18 @@ from wagtail.blocks import RichTextBlock
 
 from hypha.apply.activity.messaging import MESSAGES, messenger
 from hypha.apply.funds.models import ApplicationSubmission, AssignedReviewers
+from hypha.apply.funds.permissions import can_view_submission
 from hypha.apply.funds.workflows import INITIAL_STATE
-from hypha.apply.review.blocks import RecommendationBlock, RecommendationCommentsBlock
+from hypha.apply.review.blocks import (
+    RecommendationBlock,
+    RecommendationCommentsBlock,
+    VisibilityBlock,
+)
 from hypha.apply.review.forms import ReviewModelForm, ReviewOpinionForm
 from hypha.apply.stream_forms.models import BaseStreamForm
 from hypha.apply.todo.options import REVIEW_DRAFT
 from hypha.apply.todo.views import add_task_to_user, remove_tasks_for_user
 from hypha.apply.users.decorators import staff_required
-from hypha.apply.utils.image import generate_image_tag
 from hypha.apply.utils.views import CreateOrUpdateView
 
 from .models import Review, ReviewOpinion
@@ -34,8 +38,10 @@ from .options import DISAGREE
 
 
 def get_fields_for_stage(submission, user=None):
-    forms = submission.get_from_parent("review_forms").all()
-    external_review_forms = submission.get_from_parent("external_review_forms").all()
+    forms = submission.get_from_parent("review_forms").order_by("sort_order")
+    external_review_forms = submission.get_from_parent(
+        "external_review_forms"
+    ).order_by("sort_order")
 
     # Use ExternalReviewForm if submission's stage has external review and external review form is attached to fund.
     # ExternalReviewForm is only for non-staff reviewers(external reviewers)
@@ -50,6 +56,21 @@ def get_fields_for_stage(submission, user=None):
         return forms[0].form.form_fields
 
 
+def has_access_to_reviews(user, submission):
+    """Reviews are only accessible while the submission itself is.
+
+    Reviewer access to submissions can be limited in the Reviewer Settings. A
+    reviewer that loses access to a submission also loses access to the reviews
+    on it, including their own.
+    """
+    if user.is_apply_staff:
+        return True
+
+    # __ to avoid shadowing the gettext alias
+    submission_view, __ = can_view_submission(user, submission)
+    return submission_view
+
+
 @method_decorator(login_required, name="dispatch")
 class ReviewEditView(UserPassesTestMixin, BaseStreamForm, UpdateView):
     submission_form_class = ReviewModelForm
@@ -59,6 +80,8 @@ class ReviewEditView(UserPassesTestMixin, BaseStreamForm, UpdateView):
 
     def test_func(self):
         review = self.get_object()
+        if not has_access_to_reviews(self.request.user, review.submission):
+            return False
         return (
             self.request.user.has_perm("review.change_review")
             or self.request.user == review.author.reviewer
@@ -112,7 +135,7 @@ class ReviewEditView(UserPassesTestMixin, BaseStreamForm, UpdateView):
 
     def get_success_url(self):
         review = self.get_object()
-        return reverse_lazy("funds:submissions:detail", args=(review.submission.id,))
+        return reverse_lazy("funds:submissions:detail", args=(review.submission_id,))
 
 
 @method_decorator(login_required, name="dispatch")
@@ -130,6 +153,9 @@ class ReviewCreateOrUpdateView(BaseStreamForm, CreateOrUpdateView):
         self.submission = get_object_or_404(
             ApplicationSubmission, id=self.kwargs["submission_pk"]
         )
+
+        if not has_access_to_reviews(request.user, self.submission):
+            raise PermissionDenied()
 
         if not self.submission.phase.permissions.can_review(
             request.user
@@ -212,6 +238,13 @@ def review_workflow_actions(request, submission):
         action = "proposal_internal_review"
     elif (
         transition_after
+        and submission.status == "ext_int_external_review"
+        and submission.reviews.by_reviewers().count() >= transition_after
+    ):
+        # Automatically transition the application to "Ready for discussion".
+        action = "ext_int_post_external_review_discussion"
+    elif (
+        transition_after
         and submission.status == submission_stepped_phases[2][0].name
         and submission.reviews.count() >= transition_after
     ):
@@ -280,6 +313,9 @@ class ReviewDisplay(UserPassesTestMixin, DetailView):
         if user.is_apply_staff:
             return True
 
+        if not has_access_to_reviews(user, submission):
+            return False
+
         if user == author:
             return True
 
@@ -302,7 +338,7 @@ class ReviewDisplay(UserPassesTestMixin, DetailView):
         if review.is_draft:
             return HttpResponseRedirect(
                 reverse_lazy(
-                    "apply:submissions:reviews:form", args=(review.submission.id,)
+                    "apply:submissions:reviews:form", args=(review.submission_id,)
                 )
             )
 
@@ -332,6 +368,9 @@ class ReviewOpinionFormView(UserPassesTestMixin, CreateView):
 
         if user.is_apply_staff:
             return True
+
+        if not has_access_to_reviews(user, submission):
+            return False
 
         if user == author:
             return False
@@ -371,7 +410,7 @@ class ReviewOpinionFormView(UserPassesTestMixin, CreateView):
         if opinion.opinion == DISAGREE:
             return HttpResponseRedirect(
                 reverse_lazy(
-                    "apply:submissions:reviews:form", args=(self.review.submission.pk,)
+                    "apply:submissions:reviews:form", args=(self.review.submission_id,)
                 )
             )
         else:
@@ -408,7 +447,12 @@ class ReviewListView(ListView):
     def should_display(self, field):
         return not isinstance(
             field.block,
-            (RecommendationBlock, RecommendationCommentsBlock, RichTextBlock),
+            (
+                RecommendationBlock,
+                RecommendationCommentsBlock,
+                RichTextBlock,
+                VisibilityBlock,
+            ),
         )
 
     def get_context_data(self, **kwargs):
@@ -416,11 +460,12 @@ class ReviewListView(ListView):
 
         # Add the header rows
         review_data["title"] = {"question": "", "answers": []}
-        review_data["opinions"] = {"question": "Opinions", "answers": []}
-        review_data["score"] = {"question": "Overall Score", "answers": []}
-        review_data["recommendation"] = {"question": "Recommendation", "answers": []}
-        review_data["revision"] = {"question": "Revision", "answers": []}
-        review_data["comments"] = {"question": "Comments", "answers": []}
+        review_data["opinions"] = {"question": _("Opinions"), "answers": []}
+        review_data["score"] = {"question": _("Overall Score"), "answers": []}
+        review_data["recommendation"] = {"question": _("Recommendation"), "answers": []}
+        review_data["revision"] = {"question": _("Revision"), "answers": []}
+        review_data["visibility"] = {"question": _("Visibility"), "answers": []}
+        review_data["comments"] = {"question": _("Comments"), "answers": []}
 
         responses = self.object_list.count()
         ordered_reviewers = (
@@ -436,8 +481,11 @@ class ReviewListView(ListView):
                 review.get_absolute_url(), review.author
             )
             if review.author.role and review.author.role.icon:
-                author += generate_image_tag(review.author.role.icon, "12x12")
-            author = f"<div>{author}</div>"
+                rendition = review.author.role.icon.get_rendition("max-12x12")
+                author += (
+                    f'<img alt="{rendition.alt}" class="ms-2" src="{rendition.url}">'
+                )
+            author = f'<div class="flex items-center">{author}</div>'
 
             review_data["title"]["answers"].append(author)
             opinions_template = get_template(
@@ -447,7 +495,7 @@ class ReviewListView(ListView):
                 {"opinions": review.opinions.select_related("author").all()}
             )
             review_data["opinions"]["answers"].append(opinions_html)
-            review_data["score"]["answers"].append(review.get_score_display)
+            review_data["score"]["answers"].append(review.score_display)
             review_data["recommendation"]["answers"].append(
                 review.get_recommendation_display()
             )
@@ -455,10 +503,13 @@ class ReviewListView(ListView):
                 review.get_comments_display(include_question=False)
             )
             if review.for_latest:
-                revision = "Current"
+                revision = _("Current")
             else:
-                revision = '<a href="{}">Compare</a>'.format(review.get_compare_url())
+                revision = '<a href="{}">{}</a>'.format(
+                    review.get_compare_url(), _("Compare")
+                )
             review_data["revision"]["answers"].append(revision)
+            review_data["visibility"]["answers"].append(review.get_visibility_display())
 
             for field_id in review.fields:
                 field = review.field(field_id)
@@ -484,6 +535,8 @@ class ReviewDeleteView(UserPassesTestMixin, DeleteView):
 
     def test_func(self):
         review = self.get_object()
+        if not has_access_to_reviews(self.request.user, review.submission):
+            return False
         return (
             self.request.user.has_perm("review.delete_review")
             or self.request.user == review.author.reviewer
@@ -502,7 +555,7 @@ class ReviewDeleteView(UserPassesTestMixin, DeleteView):
 
     def get_success_url(self):
         review = self.get_object()
-        return reverse_lazy("funds:submissions:detail", args=(review.submission.id,))
+        return reverse_lazy("funds:submissions:detail", args=(review.submission_id,))
 
 
 @method_decorator(login_required, name="dispatch")
@@ -512,6 +565,9 @@ class ReviewOpinionDeleteView(DeleteView):
 
     def dispatch(self, request, *args, **kwargs):
         self.review_opinion = self.get_object()
+        submission = self.review_opinion.review.submission
+        if not has_access_to_reviews(self.request.user, submission):
+            raise PermissionDenied
         if self.request.user != self.review_opinion.author.reviewer:
             raise PermissionDenied
         return super().dispatch(request, *args, **kwargs)
@@ -529,4 +585,4 @@ class ReviewOpinionDeleteView(DeleteView):
 
     def get_success_url(self):
         review = self.review_opinion.review
-        return reverse_lazy("funds:submissions:detail", args=(review.submission.id,))
+        return reverse_lazy("funds:submissions:detail", args=(review.submission_id,))

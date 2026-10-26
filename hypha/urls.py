@@ -2,7 +2,6 @@ import djp
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path, re_path
-from django_file_form import urls as django_file_form_urls
 from two_factor.urls import urlpatterns as tf_urls
 from two_factor.views import LoginView
 from wagtail import urls as wagtail_urls
@@ -17,10 +16,14 @@ from hypha.apply.users.views import become, oauth_complete
 from hypha.apply.utils.views import custom_wagtail_page_delete
 from hypha.home.views import home
 
+from .api import urls as api_urls
+from .health import health
+
 urlpatterns = [
     path("", home, name="home"),
     path("apply/", include("hypha.apply.funds.urls", "apply")),
     path("activity/", include("hypha.apply.activity.urls", "activity")),
+    path("api/", include(api_urls)),
     path("todo/", include("hypha.apply.todo.urls", "todo")),
     path("django-admin/", admin.site.urls),
     path(
@@ -35,7 +38,7 @@ urlpatterns = [
     path("documents/", include(wagtaildocs_urls)),
     path("dashboard/", include(dashboard_urls)),
     path("sitemap.xml", sitemap),
-    path("upload/", include(django_file_form_urls)),
+    path("upload/", include("django_file_form.tus.urls")),
     # path("complete/<str:backend>/", oauth_complete, name=f"{settings.SOCIAL_AUTH_URL_NAMESPACE}:complete"),
     path(
         "", include("social_django.urls", namespace=settings.SOCIAL_AUTH_URL_NAMESPACE)
@@ -43,6 +46,7 @@ urlpatterns = [
     path("", include(tf_urls, "two_factor")),
     path("", include((user_urls, "users"))),
     path("tinymce/", include("tinymce.urls")),
+    path("health/", health, name="health"),
 ]
 
 if settings.LANGUAGE_SWITCHER:
@@ -103,12 +107,13 @@ urlpatterns += [
     ),
 ]
 
+# Load urls from any djp plugins.
+urlpatterns += djp.urlpatterns()
+
+# Need to be last.
 urlpatterns += [
     path("", include(wagtail_urls)),
 ]
-
-# Load urls from any djp plugins.
-urlpatterns += djp.urlpatterns()
 
 if settings.DEBUG:
     import debug_toolbar

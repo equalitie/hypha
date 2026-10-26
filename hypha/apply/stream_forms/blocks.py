@@ -3,7 +3,6 @@ import nh3
 from anyascii import anyascii
 from dateutil.parser import isoparse, parse
 from django import forms
-from django.conf import settings
 from django.db.models import BLANK_CHOICE_DASH
 from django.forms.widgets import ClearableFileInput
 from django.utils.dateparse import parse_datetime
@@ -29,7 +28,7 @@ from wagtail.blocks import (
     TimeBlock,
 )
 
-from .fields import MultiFileField, SingleFileField
+from .fields import MultiFileField, SingleFileField, get_file_accept_attr_value
 
 
 class FormFieldBlock(StructBlock):
@@ -67,6 +66,15 @@ class FormFieldBlock(StructBlock):
     def get_field(self, struct_value):
         field_kwargs = self.get_field_kwargs(struct_value)
         return self.get_field_class(struct_value)(**field_kwargs)
+
+    def get_display_value(self, value):
+        """The value to display the question with.
+
+        Blocks that derive parts of the question, such as a label taken from a
+        linked object, apply those defaults here so that every way of rendering
+        the field gets them.
+        """
+        return value
 
     def decode(self, value):
         """Convert JSON representation into actual python objects"""
@@ -112,6 +120,35 @@ class FormFieldBlock(StructBlock):
 
 class OptionalFormFieldBlock(FormFieldBlock):
     required = BooleanBlock(label=_("Required"), required=False)
+
+
+class PIIFieldMixin(StructBlock):
+    """Adds a "Personal information" checkbox to a form field block.
+
+    Mix it in *before* the field block it extends, so that the checkbox is
+    added after the block's own children::
+
+        class PIICharFieldBlock(PIIFieldMixin, CharFieldBlock):
+            pass
+
+    Answers to marked fields are only rendered for those allowed to see them,
+    see `AccessFormData.render_answer()`. Nothing redacts the answers of a
+    review, determination or project form, so only the application form field
+    blocks (`hypha.apply.funds.pii_blocks`) mix this in.
+    """
+
+    is_pii = BooleanBlock(
+        label=_("Personal information"),
+        required=False,
+        default=False,
+        help_text=_(
+            "Tick this if the answer will contain personally identifiable "
+            "information, such as a name, address, phone number or date of "
+            "birth. Only the applicant, their co-applicants and staff will be "
+            "able to see the answer. Reviewers and other users will see that "
+            "the question was asked, but not the answer."
+        ),
+    )
 
 
 CHARFIELD_FORMATS = [
@@ -188,6 +225,7 @@ class CheckboxFieldBlock(OptionalFormFieldBlock):
     class Meta:
         label = _("Checkbox field")
         icon = "tick-inverse"
+        template = "stream_forms/render_checkbox_field.html"
 
     def get_searchable_content(self, value, data):
         return None
@@ -216,7 +254,7 @@ class GroupToggleBlock(FormFieldBlock):
     required = BooleanBlock(label=_("Required"), default=True, required=False)
     choices = ListBlock(
         CharBlock(label=_("Choice")),
-        help_text=(
+        help_text=_(
             "Please create only two choices for toggle. "
             "First choice will revel the group and the second hide it. "
             "Additional choices will be ignored."
@@ -229,7 +267,7 @@ class GroupToggleBlock(FormFieldBlock):
     class Meta:
         label = _("Group fields")
         icon = "group"
-        help_text = "Remember to end group using Group fields end block."
+        help_text = _("Remember to end group using Group fields end block.")
 
     def get_field_kwargs(self, struct_value):
         kwargs = super().get_field_kwargs(struct_value)
@@ -240,8 +278,8 @@ class GroupToggleBlock(FormFieldBlock):
             field_choices = field_choices[:2]
         elif total_choices < 2:
             field_choices = [
-                ("yes", "Yes"),
-                ("no", "No"),
+                ("yes", _("Yes")),
+                ("no", _("No")),
             ]
         kwargs["choices"] = field_choices
         return kwargs
@@ -249,9 +287,9 @@ class GroupToggleBlock(FormFieldBlock):
 
 class GroupToggleEndBlock(StaticBlock):
     class Meta:
-        label = "Group fields end"
+        label = _("Group fields end")
         icon = "group"
-        admin_text = "End of Group fields Block"
+        admin_text = _("End of Group fields Block")
 
 
 class DropdownFieldBlock(RadioButtonsFieldBlock):
@@ -422,7 +460,7 @@ class FileFieldBlock(UploadableMediaBlock):
         kwargs["help_text"] = mark_safe(
             _("{help_text} Accepted file types are {file_types}").format(
                 help_text=kwargs["help_text"],
-                file_types=settings.FILE_ACCEPT_ATTR_VALUE,
+                file_types=get_file_accept_attr_value(),
             )
         )
         return kwargs
@@ -441,7 +479,7 @@ class MultiFileFieldBlock(UploadableMediaBlock):
         kwargs["help_text"] = mark_safe(
             _("{help_text} Accepted file types are {file_types}").format(
                 help_text=kwargs["help_text"],
-                file_types=settings.FILE_ACCEPT_ATTR_VALUE,
+                file_types=get_file_accept_attr_value(),
             )
         )
         return kwargs

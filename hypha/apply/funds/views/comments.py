@@ -32,8 +32,8 @@ def comments_view(request, pk):
     if user_can_view_post_comment_form(user=request.user, submission=submission):
         form = CommentForm(
             user=request.user,
-            submission_partner_list=submission.partners.all(),
             data=request.POST or None,
+            has_coapplicants=submission.co_applicants.exists(),
         )
         if request.method == "POST":
             form.instance.user = request.user
@@ -49,8 +49,18 @@ def comments_view(request, pk):
                     source=submission,
                     related=obj,
                 )
-                return redirect("funds:submissions:comments", pk=submission.pk)
 
+                if assigned_user := form.cleaned_data["assign_to"]:
+                    messenger(
+                        MESSAGES.COMMENT_ASSIGNED,
+                        request=request,
+                        user=request.user,
+                        source=submission,
+                        related=obj,
+                        assignee=assigned_user,
+                    )
+
+                return redirect("funds:submissions:comments", pk=submission.pk)
     ctx = {
         "object": submission,
         "comments_count": comments_count,

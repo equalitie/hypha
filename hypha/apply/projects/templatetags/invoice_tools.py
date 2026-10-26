@@ -7,10 +7,9 @@ from django.utils.translation import gettext_lazy as _
 from hypha.apply.activity.models import Activity
 from hypha.apply.activity.templatetags.activity_tags import display_for
 from hypha.apply.projects.constants import (
-    INVOICE_STATUS_BG_COLORS,
-    INVOICE_STATUS_FG_COLORS,
+    INVOICE_STATUS_CLASSNAME_MAP,
 )
-from hypha.apply.projects.models.payment import PAID
+from hypha.apply.projects.models.invoice import PAID
 from hypha.apply.projects.models.project import (
     CLOSING,
     COMPLETE,
@@ -63,24 +62,15 @@ def percentage(value, total):
 
 
 @register.simple_tag
-def user_can_view_invoices(project, user):
+def project_can_have_invoices(project):
     if project.status in [INVOICING_AND_REPORTING, CLOSING, COMPLETE]:
         return True
     return False
 
 
 @register.simple_tag
-def user_can_add_invoices(project, user):
-    if project.status == INVOICING_AND_REPORTING and (
-        user.is_apply_staff or user == project.user
-    ):
-        return True
-    return False
-
-
-@register.simple_tag
 def get_invoice_form(invoice, user):
-    from hypha.apply.projects.views.payment import ChangeInvoiceStatusForm
+    from hypha.apply.projects.views.invoice import ChangeInvoiceStatusForm
 
     form = ChangeInvoiceStatusForm(instance=invoice, user=user)
     if form:
@@ -136,13 +126,8 @@ def get_comment_for_invoice_action(invoice, action):
 
 
 @register.filter
-def invoice_status_bg_color(invoice_status):
-    return INVOICE_STATUS_BG_COLORS.get(invoice_status, "bg-gray-100")
-
-
-@register.filter
-def invoice_status_fg_color(invoice_status):
-    return INVOICE_STATUS_FG_COLORS.get(invoice_status, "text-gray-700")
+def invoice_status_to_classname(invoice_status):
+    return INVOICE_STATUS_CLASSNAME_MAP.get(invoice_status, "badge")
 
 
 @register.simple_tag

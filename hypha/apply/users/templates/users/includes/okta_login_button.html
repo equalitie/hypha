@@ -1,0 +1,10 @@
+{% load i18n heroicons %}
+{# Submits the form from "users/includes/oauth_login_forms.html". #}
+<button
+    class="btn btn-secondary btn-outline"
+    type="submit"
+    form="okta-oauth2-login-form"
+>
+    {% heroicon_mini "key" size=18 class="opacity-80" aria_hidden=true %}
+    {% trans "Log in with Okta" %}
+</button>
