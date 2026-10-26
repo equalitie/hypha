@@ -3,7 +3,7 @@ from django.utils.translation import gettext_lazy as _
 
 NA = 99
 
-RATE_CHOICES = (
+DEFAULT_RATE_CHOICES = (
     (0, _("0. Not applicable")),
     (1, _("1. Has little merit, relevance to the program objectives")),
     (2, _("2. Has some merit but unlikely to succeed / meet its own and Breakout program's objectives")),
